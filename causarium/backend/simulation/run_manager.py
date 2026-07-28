@@ -4,6 +4,7 @@ from typing import Any, List, Dict
 from .world_state import WorldState, AgentState
 from .tick_engine import TickEngine
 from .action_resolver import ActionResolver
+from .convergence import ConvergenceDetector
 
 # Mock base agent logic for type hinting and structural completeness
 class BaseAgentLogic:
@@ -26,13 +27,21 @@ class BaseAgentLogic:
         }
 
 class SimulationOrchestrator:
-    def __init__(self, run_id: str = None, max_ticks: int = 100):
+    def __init__(
+        self,
+        run_id: str = None,
+        max_ticks: int = 100,
+        detect_convergence: bool = True,
+    ):
         self.run_id = run_id or str(uuid.uuid4())
         self.max_ticks = max_ticks
         self.action_resolver = ActionResolver()
         self.tick_engine = TickEngine(self.action_resolver)
         self.world_state = WorldState(run_id=self.run_id)
         self.agents_logic: List[BaseAgentLogic] = []
+        self.event_log: List[Dict[str, Any]] = []
+        self._converged = False
+        self._convergence = ConvergenceDetector() if detect_convergence else None
 
     def initialize_world(self, scenario_params: Dict[str, Any], agent_configs: List[Dict[str, Any]]):
         """
@@ -59,15 +68,24 @@ class SimulationOrchestrator:
     async def run_simulation(self, event_callback=None):
         """
         PRD 9.1 Step 3, 4, 5, 6
+
+        Returns the full resolved event log for the run (also retained on
+        ``self.event_log`` for the discovery pipeline).
         """
         for _ in range(1, self.max_ticks + 1):
             events = await self.tick_engine.run_tick(self.world_state, self.agents_logic)
-            
+            self.event_log.extend(events)
+
+            if self._convergence is not None:
+                self._convergence.observe(events, n_agents=len(self.agents_logic))
+
             if event_callback:
                 await event_callback(self.run_id, self.world_state.tick, events)
-            
+
             if self.check_termination():
                 break
+
+        return self.event_log
 
     def check_termination(self) -> bool:
         """
@@ -76,4 +94,12 @@ class SimulationOrchestrator:
         """
         if self.world_state.tick >= self.max_ticks:
             return True
+        if self._convergence is not None and self._convergence.converged():
+            self._converged = True
+            return True
         return False
+
+    @property
+    def converged(self) -> bool:
+        """True if the run stopped early because the world stabilized."""
+        return self._converged
