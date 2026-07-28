@@ -14,6 +14,7 @@ from typing import List
 from ..models.discovery import CausalParadox
 
 MIN_CYCLE_LENGTH = 3
+MAX_CYCLE_LENGTH = 6          # bound cycle enumeration (dense graphs are exponential)
 DEFAULT_STRENGTH_THRESHOLD = 0.15
 MAX_PARADOXES = 20
 
@@ -31,8 +32,14 @@ class ParadoxEngine:
         paradoxes: List[CausalParadox] = []
         counter = 1
         seen: set = set()
-        for cycle in nx.simple_cycles(structural_graph):
-            if len(cycle) < MIN_CYCLE_LENGTH:
+        # length_bound keeps enumeration polynomial on dense structural graphs
+        # (unbounded simple_cycles is exponential and can hang for minutes).
+        try:
+            cycle_iter = nx.simple_cycles(structural_graph, length_bound=MAX_CYCLE_LENGTH)
+        except TypeError:  # older networkx without length_bound
+            cycle_iter = nx.simple_cycles(structural_graph)
+        for cycle in cycle_iter:
+            if len(cycle) < MIN_CYCLE_LENGTH or len(cycle) > MAX_CYCLE_LENGTH:
                 continue
             key = frozenset(cycle)
             if key in seen:

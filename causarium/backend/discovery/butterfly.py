@@ -31,15 +31,22 @@ class ButterflyScanner:
         return results[:MAX_RESULTS]
 
     # ------------------------------------------------------------------ #
+    # Bound the O(V) reachability calls per run so dense graphs stay fast.
+    MAX_CANDIDATES = 60
+
     def _scan_one(
         self, run_id: str, graph: nx.DiGraph, simulation_id: str, threshold: float
     ) -> List[ButterflyEvent]:
         out: List[ButterflyEvent] = []
-        for node in graph.nodes:
+        # Only the highest-magnitude actions can be butterflies; cap the count.
+        candidates = sorted(
+            (n for n in graph.nodes if float(graph.nodes[n].get("magnitude", 0.0)) > 0.05),
+            key=lambda n: float(graph.nodes[n].get("magnitude", 0.0)),
+            reverse=True,
+        )[: self.MAX_CANDIDATES]
+        for node in candidates:
             nd = graph.nodes[node]
             magnitude = float(nd.get("magnitude", 0.0))
-            if magnitude <= 0.05:
-                continue  # WAIT / negligible actions cannot be butterflies
 
             downstream_weight, descendants = self._downstream_weight(graph, node)
             if downstream_weight <= 0:

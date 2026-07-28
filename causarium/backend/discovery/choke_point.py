@@ -57,21 +57,24 @@ class ChokePointDetector:
         return sorted(choke_points, key=lambda c: c.intervention_efficacy, reverse=True)
 
     # ------------------------------------------------------------------ #
-    @staticmethod
-    def _accumulate(graph: nx.DiGraph, leverage: Dict[int, float], interventions: Dict[int, set]) -> None:
-        for node in graph.nodes:
+    # Cap the reachability computation per run graph to stay fast on dense graphs.
+    MAX_NODES = 80
+
+    @classmethod
+    def _accumulate(cls, graph: nx.DiGraph, leverage: Dict[int, float], interventions: Dict[int, set]) -> None:
+        # Prioritize the most connected nodes; their downstream reach dominates.
+        nodes = sorted(graph.nodes, key=lambda n: graph.out_degree(n), reverse=True)[: cls.MAX_NODES]
+        for node in nodes:
             nd = graph.nodes[node]
             tick = nd.get("tick", 0)
+            # Total causal weight reachable from this node (each edge counted once).
+            descendants = nx.descendants(graph, node)
+            reachable = descendants | {node}
             downstream = sum(
                 data.get("weight", 0.0)
-                for _, v, data in graph.out_edges(node, data=True)
+                for u, v, data in graph.out_edges(reachable, data=True)
+                if v in reachable
             )
-            # Add the node's own reachable weight (one hop is already counted;
-            # descendants capture the cascade).
-            for d in nx.descendants(graph, node):
-                downstream += sum(
-                    data.get("weight", 0.0) for _, _, data in graph.out_edges(d, data=True)
-                )
             leverage[tick] += downstream
             if downstream > 0:
                 interventions[tick].add(f"{nd.get('agent_type')}:{nd.get('action_type')}")

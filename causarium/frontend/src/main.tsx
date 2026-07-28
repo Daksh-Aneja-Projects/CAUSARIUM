@@ -33,10 +33,14 @@ const App = () => {
           <div className="w-6 h-6 rounded-sm rotate-45" style={{ background: `linear-gradient(135deg, ${accent}, #00D9FF)` }} />
           <span className="text-white font-display font-semibold tracking-[0.3em] uppercase text-sm">Causarium</span>
         </div>
-        <div className="flex space-x-6 text-xs font-mono uppercase tracking-widest text-gray-600">
-          <Step n="01" label="Compose" active={view === 'composer'} accent={accent} />
-          <Step n="02" label="Collide" active={view === 'monitor'} accent={accent} />
-          <Step n="03" label="Discover" active={view === 'dashboard'} accent={accent} />
+        <div className="flex items-center gap-5 text-xs font-mono uppercase tracking-widest">
+          <Step n="01" label="Compose" active={view === 'composer'} accent={accent} enabled onClick={() => setView('composer')} />
+          <Step n="02" label="Collide" active={view === 'monitor'} accent={accent} enabled={!!simulationId} onClick={() => simulationId && setView('monitor')} />
+          <Step n="03" label="Discover" active={view === 'dashboard'} accent={accent} enabled={!!simulationId} onClick={() => simulationId && setView('dashboard')} />
+          <button onClick={() => setView('composer')}
+            className="ml-2 px-3 py-1.5 rounded-md border border-[#333] text-gray-400 hover:text-white hover:border-[#555] transition tracking-normal normal-case">
+            New scenario
+          </button>
         </div>
       </nav>
 
@@ -61,10 +65,12 @@ const App = () => {
   );
 };
 
-const Step: React.FC<{ n: string; label: string; active: boolean; accent: string }> = ({ n, label, active, accent }) => (
-  <span className="flex items-center gap-1.5" style={{ color: active ? accent : undefined }}>
+const Step: React.FC<{ n: string; label: string; active: boolean; accent: string; enabled: boolean; onClick: () => void }> = ({ n, label, active, accent, enabled, onClick }) => (
+  <button onClick={onClick} disabled={!enabled}
+    className={`flex items-center gap-1.5 transition ${enabled ? 'hover:text-white cursor-pointer' : 'cursor-default'} ${active ? '' : 'text-gray-600'}`}
+    style={{ color: active ? accent : undefined }}>
     <span className="opacity-60">{n}</span>{label}
-  </span>
+  </button>
 );
 
 const root = createRoot(document.getElementById('root')!);
