@@ -44,9 +44,9 @@ export const DiscoveryDashboard: React.FC<{ simulationId: string; lens: Lens | n
     <div className="h-full flex flex-col min-h-0 animate-fade-in px-6 py-4 gap-3">
       {/* Header */}
       <div className="flex flex-wrap justify-between items-center gap-3 shrink-0">
-        <div className="flex items-center gap-3">
-          {lens && <span style={{ color: accent }}><Icon name={('lens-' + lens.id) as IconName} size={22} /></span>}
-          <div>
+        <div className="flex items-center gap-3 min-w-0">
+          {lens && <span className="shrink-0" style={{ color: accent }}><Icon name={('lens-' + lens.id) as IconName} size={20} /></span>}
+          <div className="min-w-0">
             <h1 className="font-display text-2xl font-semibold text-white leading-none">Discovered Futures</h1>
             <p className="text-gray-500 font-mono text-[11px] mt-1">
               <AnimatedNumber value={data.run_count} /> timelines · {lens?.label ?? 'Strategy'} lens

@@ -50,6 +50,7 @@ export const ScenarioComposer: React.FC<{ onLaunch: (id: string, wsUrl: string, 
     const question = q.trim();
     if (!question) return;
     setSynthesizing(true); setError(null); setPrompt(question);
+    setRoster([]); setContenders([]); setTitle('');  // clear so the living field shows while reasoning
     try {
       const s: SynthesizedScenario = await causariumApi.synthesize(question);
       setTitle(s.title); setContext(s.context); setLensId(s.lens_id);
