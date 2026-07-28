@@ -144,8 +144,8 @@ class SimulationEngine:
             "lens": lens,
             "scenario_id": config.get("scenario_id"),
             "tenant_id": config.get("tenant_id", "public"),
-            # Small per-tick delay makes the run visibly stream in the UI.
-            "stream_delay": float(config.get("stream_delay", 0.015)),
+            # Per-tick delay paces the live network so interactions are watchable.
+            "stream_delay": float(config.get("stream_delay", 0.04)),
         }
 
     # ------------------------------------------------------------------ #
@@ -187,11 +187,17 @@ class SimulationEngine:
             session.current_run = run_idx + 1
             world = build_world(run_id, population, cp)
             agent_ids = list(world.agents)
+            slot_of = {aid: i for i, aid in enumerate(agent_ids)}
             detector = ConvergenceDetector()
             event_log: List[Dict[str, Any]] = []
             converged = False
 
-            await session.emit({"type": "run_start", "run": run_idx, "agents": len(agent_ids)})
+            # Roster: stable actor "slots" so the live network keeps the same
+            # nodes across every run/timeline.
+            await session.emit({
+                "type": "agents", "run": run_idx,
+                "agents": [{"slot": i, "type": world.agents[aid].agent_type} for i, aid in enumerate(agent_ids)],
+            })
 
             for _ in range(tick_depth):
                 await self._gate(session, world, run_idx)
@@ -209,6 +215,10 @@ class SimulationEngine:
                     "black_swan": any(e.get("type") == "BLACK_SWAN" for e in events),
                     "progress": round(session.progress, 4),
                 })
+                # Live interaction links: who acted on whom this tick.
+                links = _interaction_links(events, slot_of)
+                if links:
+                    await session.emit({"type": "interactions", "run": run_idx, "tick": world.tick, "links": links})
                 if delay:
                     await asyncio.sleep(delay)
 
@@ -347,6 +357,9 @@ class SimulationEngine:
         session.discovery["reality_dna_distribution"] = self._mean_dna(session.runs)
         session.discovery["outcome_distribution"] = session._outcome_distribution()
         session.discovery["lens"] = session.config.get("lens")
+        # Human-readable narration of every finding.
+        from .narrative import build_narrative
+        session.discovery["narrative"] = build_narrative(session.discovery, session.config.get("lens"))
 
         # Best-effort persistence (Neo4j graph + DNA vectors) — never blocks.
         await self._persist(session)
@@ -481,6 +494,31 @@ class SimulationEngine:
             "singularities": len(d.get("singularities", [])),
             "causal_paradoxes": len(d.get("causal_paradoxes", [])),
         }
+
+
+def _interaction_links(events: List[Dict[str, Any]], slot_of: Dict[str, int]) -> List[Dict[str, Any]]:
+    """Compact per-tick 'who acted on whom' links for the live network view."""
+    links: List[Dict[str, Any]] = []
+    for e in events:
+        et = e.get("type")
+        if et == "BLACK_SWAN":
+            links.append({"s": "shock", "t": "all", "action": e.get("action_type"), "agg": True, "swan": True})
+            continue
+        if et not in ("ACTION_EXECUTED", "CASCADE"):
+            continue
+        if e.get("status") not in ("SUCCESS", "CONTESTED"):
+            continue
+        s = slot_of.get(e.get("agent_id"))
+        if s is None:
+            continue
+        t = slot_of.get(str(e.get("target")))
+        links.append({
+            "s": s, "t": t if t is not None else "env",
+            "action": e.get("action_type"), "agg": bool(e.get("aggressive")),
+        })
+        if len(links) >= 40:
+            break
+    return links
 
 
 # Module-level singleton shared by the routers.

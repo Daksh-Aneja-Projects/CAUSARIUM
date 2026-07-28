@@ -82,29 +82,36 @@ export const ScenarioComposer: React.FC<{ onLaunch: (id: string, wsUrl: string, 
         <h1 className="font-display text-3xl font-semibold text-white leading-tight">Compose a Reality</h1>
       </div>
 
-      <div className="flex-1 min-h-0 grid grid-cols-[280px_1fr] gap-4 px-8 pb-3">
-        {/* Agent catalogue */}
+      <div className="flex-1 min-h-0 grid grid-cols-[280px_minmax(0,1fr)] gap-4 px-8 pb-3">
+        {/* Agent catalogue - compact mini chips, full info on hover, no scroller */}
         <aside className="glass-panel rounded-2xl flex flex-col min-h-0">
-          <div className="px-4 py-3 border-b border-white/5 shrink-0">
+          <div className="px-4 py-2.5 border-b border-white/5 shrink-0">
             <div className="text-[11px] font-mono uppercase tracking-widest text-gray-400">Agent Catalogue</div>
             <div className="text-[10px] text-gray-600 font-mono mt-0.5">{catalog?.count ?? 0} archetypes, drag to roster</div>
           </div>
-          <div className="scroll-y flex-1 px-3 py-3 space-y-3">
+          <div className="flex-1 min-h-0 px-2.5 py-2 flex flex-col justify-between gap-1.5">
             {catalog?.categories.map(cat => (
-              <div key={cat.id}>
-                <div className="text-[10px] font-mono uppercase tracking-wider text-gray-500 mb-1.5 px-1">{cat.label}</div>
-                <div className="space-y-1.5">
+              <div key={cat.id} className="min-h-0">
+                <div className="text-[9px] font-mono uppercase tracking-wider text-gray-500 mb-1 px-1">{cat.label}</div>
+                <div className="grid grid-cols-2 gap-1">
                   {cat.agents.map(a => (
                     <div key={a.type} draggable
                       onDragStart={e => e.dataTransfer.setData('text/agent-type', a.type)}
                       onDoubleClick={() => addAgent(a)}
-                      className="group flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg bg-[#0A0A0F] border border-[#222] hover:border-[color:var(--h)] transition-colors"
-                      style={{ ['--h' as any]: accent }}
-                      title={`${a.blurb}. Drag or double click to add.`}>
-                      <span style={{ color: accent }}><Icon name={agentTypeIcon(a.type)} size={16} /></span>
-                      <div className="min-w-0">
-                        <div className="text-xs text-gray-200 truncate">{a.label}</div>
-                        <div className="text-[9px] text-gray-600 font-mono truncate">{a.blurb}</div>
+                      className="group/chip relative flex items-center gap-1.5 px-1.5 py-1 rounded-md bg-[#0A0A0F] border border-[#222] hover:border-[color:var(--h)] transition-colors cursor-grab"
+                      style={{ ['--h' as any]: accent }}>
+                      <span className="shrink-0" style={{ color: accent }}><Icon name={agentTypeIcon(a.type)} size={13} /></span>
+                      <span className="text-[10px] text-gray-300 truncate">{a.label.replace('Executive ', '')}</span>
+                      {/* hover popover with full info */}
+                      <div className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-2 w-48 z-50 opacity-0 group-hover/chip:opacity-100 transition-opacity">
+                        <div className="glass-panel rounded-lg p-2.5 border border-white/10">
+                          <div className="flex items-center gap-2">
+                            <span style={{ color: accent }}><Icon name={agentTypeIcon(a.type)} size={14} /></span>
+                            <span className="text-xs text-white">{a.label}</span>
+                          </div>
+                          <div className="text-[10px] text-gray-400 mt-1">{a.blurb}</div>
+                          <div className="text-[9px] text-gray-600 font-mono mt-1.5">drag or double click to add</div>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -115,25 +122,33 @@ export const ScenarioComposer: React.FC<{ onLaunch: (id: string, wsUrl: string, 
         </aside>
 
         {/* Main column */}
-        <div className="flex flex-col min-h-0 gap-3">
-          {/* Scenarios */}
+        <div className="flex flex-col min-h-0 min-w-0 gap-3">
+          {/* Scenarios - mini cards, wrap grid, full context on hover, no scroller */}
           <section className="shrink-0">
-            <Label>Industry Scenarios</Label>
-            <div className="scroll-x flex gap-2.5 pb-1.5">
+            <Label>Industry Scenarios <Faint>hover for detail</Faint></Label>
+            <div className="grid grid-cols-4 gap-2">
               {scenarios.map(s => {
                 const on = scenarioId === s.id;
                 return (
                   <button key={s.id} onClick={() => loadScenario(s)}
-                    className={`shrink-0 w-52 text-left p-3 rounded-xl border transition-all bg-[#0A0A0F] ${on ? 'border-transparent' : 'border-[#222] hover:border-[#444]'}`}
-                    style={on ? { boxShadow: `0 0 0 1px ${s.lens_detail.accent}, 0 0 22px -8px ${s.lens_detail.accent}` } : undefined}>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: s.lens_detail.accent }}>{s.industry}</span>
-                      <span style={{ color: s.lens_detail.accent }}><Icon name={lensIcon(s.lens)} size={14} /></span>
+                    className={`group/sc relative text-left p-2.5 rounded-lg border transition-all bg-[#0A0A0F] min-w-0 ${on ? 'border-transparent' : 'border-[#222] hover:border-[#444]'}`}
+                    style={on ? { boxShadow: `0 0 0 1px ${s.lens_detail.accent}, 0 0 20px -8px ${s.lens_detail.accent}` } : undefined}>
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-[9px] font-mono uppercase tracking-wider truncate" style={{ color: s.lens_detail.accent }}>{s.industry}</span>
+                      <span className="shrink-0" style={{ color: s.lens_detail.accent }}><Icon name={lensIcon(s.lens)} size={12} /></span>
                     </div>
-                    <div className="text-white font-display text-sm mt-1 leading-snug line-clamp-2">{s.title}</div>
-                    <div className="text-[10px] text-gray-500 font-mono mt-1.5 flex items-center gap-1.5">
-                      <Icon name="actors" size={11} /> {s.agent_count}
-                      <Icon name="clock" size={11} className="ml-1" /> {s.horizon}
+                    <div className="text-white font-display text-xs mt-1 leading-snug line-clamp-2">{s.title}</div>
+                    {/* hover popover with full context */}
+                    <div className="pointer-events-none absolute left-0 top-full mt-2 w-64 z-50 opacity-0 group-hover/sc:opacity-100 transition-opacity">
+                      <div className="glass-panel rounded-lg p-3 border border-white/10">
+                        <div className="text-[10px] font-mono uppercase tracking-wider" style={{ color: s.lens_detail.accent }}>{s.industry} · {s.lens_detail.label}</div>
+                        <div className="text-white font-display text-sm mt-1">{s.title}</div>
+                        <div className="text-[11px] text-gray-400 mt-1.5 leading-snug">{s.context}</div>
+                        <div className="text-[10px] text-gray-500 font-mono mt-2 flex items-center gap-2">
+                          <Icon name="actors" size={11} /> {s.agent_count} actors
+                          <Icon name="clock" size={11} /> {s.horizon}
+                        </div>
+                      </div>
                     </div>
                   </button>
                 );
@@ -196,13 +211,13 @@ export const ScenarioComposer: React.FC<{ onLaunch: (id: string, wsUrl: string, 
           </section>
 
           {/* Physics + settings */}
-          <section className="shrink-0 grid grid-cols-2 gap-3">
-            <div className="glass-panel rounded-xl px-4 py-3 grid grid-cols-2 gap-x-5 gap-y-1">
+          <section className="shrink-0 grid grid-cols-2 gap-3 min-w-0">
+            <div className="glass-panel rounded-xl px-4 py-3 grid grid-cols-2 gap-x-5 gap-y-1 min-w-0">
               <div className="col-span-2"><Label>Reality Physics</Label></div>
               <Slider label="Entropy" value={entropy} min={0} max={1} step={0.05} onChange={setEntropy} accent={accent} />
               <Slider label="Cascade" value={cascade} min={1} max={5} step={0.1} onChange={setCascade} accent={accent} />
             </div>
-            <div className="glass-panel rounded-xl px-4 py-3 grid grid-cols-2 gap-x-5 gap-y-1 items-center">
+            <div className="glass-panel rounded-xl px-4 py-3 grid grid-cols-2 gap-x-5 gap-y-1 items-center min-w-0">
               <div className="col-span-2"><Label>Run Settings</Label></div>
               <Slider label="Timelines" value={runCount} min={4} max={120} step={2} onChange={v => setRunCount(Math.round(v))} accent={accent} fmt={v => `${Math.round(v)}`} />
               <Slider label="Tick depth" value={tickDepth} min={8} max={60} step={1} onChange={v => setTickDepth(Math.round(v))} accent={accent} fmt={v => `${Math.round(v)}`} />
