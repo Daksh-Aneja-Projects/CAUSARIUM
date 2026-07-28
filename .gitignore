@@ -52,5 +52,11 @@ logs/
 
 # === Reports / generated ===
 *.pdf
-!CAUSARIUM_PRD.pdf
 reports_output/
+
+# === Internal / planning docs (never publish) ===
+CAUSARIUM_PRD.md
+/plans/
+*.internal.md
+NOTES.md
+scratch/
