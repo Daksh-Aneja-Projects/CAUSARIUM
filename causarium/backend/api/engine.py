@@ -124,6 +124,13 @@ class SimulationEngine:
             await session.emit({"type": "error", "message": session.error})
 
     async def _execute(self, session: SimulationSession) -> None:
+        if session.config.get("mode") == "llm":
+            await self._execute_llm(session)
+        else:
+            await self._execute_heuristic(session)
+        await self._finish_discovery(session)
+
+    async def _execute_heuristic(self, session: SimulationSession) -> None:
         cfg = session.config
         run_count = cfg["run_count"]
         tick_depth = cfg["tick_depth"]
@@ -186,7 +193,59 @@ class SimulationEngine:
                 "dna": result.reality_dna,
             })
 
-        # Discovery phase.
+    async def _execute_llm(self, session: SimulationSession) -> None:
+        """Run agents through the real Ollama cognition stack, streaming each
+        agent's actual decision + rationale. Capped small so it stays watchable
+        on CPU inference."""
+        from ..simulation.llm_runner import LLMRunner
+
+        cfg = session.config
+        # LLM inference is slow on CPU — bound the work so a live run completes.
+        population = cfg["population"][:4]
+        tick_depth = min(cfg["tick_depth"], 6)
+        run_count = min(cfg["run_count"], 2)
+        cfg["run_count"], cfg["tick_depth"] = run_count, tick_depth
+        total_ticks = max(1, run_count * tick_depth)
+        ticks_done = 0
+
+        session.status = "RUNNING"
+        await session.emit({"type": "status", "status": "RUNNING", **session.public_state()})
+        await session.emit({"type": "notice", "message":
+                            f"LLM mode: {len(population)} agents reason via {LLMRunner().model} "
+                            f"per tick ({run_count} runs x {tick_depth} ticks). This is slower."})
+
+        runner = LLMRunner()
+        for run_idx in range(run_count):
+            session.current_run = run_idx + 1
+            await session.emit({"type": "run_start", "run": run_idx, "agents": len(population)})
+
+            async def on_event(ev: Dict[str, Any], _idx=run_idx) -> None:
+                nonlocal ticks_done
+                ev["run"] = _idx
+                if ev.get("type") == "tick":
+                    ticks_done += 1
+                    session.progress = ticks_done / total_ticks
+                    session.current_tick = ev.get("tick", session.current_tick)
+                    ev["progress"] = round(session.progress, 4)
+                await session.emit(ev)
+
+            result = await runner.run(
+                run_id=f"{session.simulation_id}-run{run_idx}",
+                agent_specs=population,
+                n_ticks=tick_depth,
+                constraint_params=cfg["constraint_params"],
+                simulation_id=session.simulation_id,
+                organization=cfg.get("title", "Theatre"),
+                on_event=on_event,
+            )
+            session.runs.append(result)
+            await session.emit({
+                "type": "run_complete", "run": run_idx,
+                "outcome": result.terminal_outcome, "converged": False,
+                "dna": result.reality_dna,
+            })
+
+    async def _finish_discovery(self, session: SimulationSession) -> None:
         session.status = "DISCOVERY"
         await session.emit({"type": "status", "status": "DISCOVERY", **session.public_state()})
         session.discovery = self.discovery_worker.process_simulation(
@@ -195,6 +254,9 @@ class SimulationEngine:
         session.discovery["reality_dna_distribution"] = self._mean_dna(session.runs)
         session.discovery["outcome_distribution"] = session._outcome_distribution()
 
+        # Best-effort persistence (Neo4j graph + DNA vectors) — never blocks.
+        await self._persist(session)
+
         session.status = "COMPLETE"
         session.progress = 1.0
         await session.emit({
@@ -202,6 +264,14 @@ class SimulationEngine:
             "status": "COMPLETE",
             "summary": self._summary(session),
         })
+
+    async def _persist(self, session: SimulationSession) -> None:
+        """Overridden/extended in the persistence phase; no-op if unavailable."""
+        try:
+            from .persistence import persist_simulation
+            await persist_simulation(session)
+        except Exception:  # noqa: BLE001 - persistence is strictly best-effort
+            pass
 
     # ------------------------------------------------------------------ #
     def graph_data(self, session: SimulationSession) -> Dict[str, Any]:

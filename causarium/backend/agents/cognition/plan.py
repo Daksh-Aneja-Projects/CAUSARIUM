@@ -21,6 +21,7 @@ class PlanEngine:
         stream: MemoryStream,
         world_state: Dict[str, Any],
         tick: int,
+        model: str = None,
     ) -> Dict[str, Any]:
         """
         Generate the next action for the agent based on goals, memory, and world state.
@@ -69,12 +70,14 @@ class PlanEngine:
                 tick=tick, persona_name=agent.persona_name)},
         ]
 
-        planned_action = await generate_json(
-            messages,
+        kwargs = dict(
             schema=AGENT_DECISION_SCHEMA,
             temperature=DEFAULT_AGENT_TEMPERATURE,
             max_tokens=DEFAULT_AGENT_DECISION_TOKEN_BUDGET,
         )
+        if model:
+            kwargs["model"] = model
+        planned_action = await generate_json(messages, **kwargs)
 
         # Attribute and normalize the action for the resolver.
         planned_action.setdefault("action_type", "WAIT")

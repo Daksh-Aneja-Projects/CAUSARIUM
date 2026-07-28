@@ -5,6 +5,7 @@ export const ScenarioComposer: React.FC<{ onLaunch: (id: string, wsUrl: string) 
   const [context, setContext] = useState('We are a $2B US SaaS company planning to enter the German enterprise market...');
   const [runCount, setRunCount] = useState(20);
   const [entropy, setEntropy] = useState(30);
+  const [mode, setMode] = useState<'heuristic' | 'llm'>('heuristic');
   const [isLaunching, setIsLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,7 +18,7 @@ export const ScenarioComposer: React.FC<{ onLaunch: (id: string, wsUrl: string) 
         description: context,
         run_count: runCount,
         tick_depth: 25,
-        mode: 'heuristic',
+        mode,
         constraint_params: { entropy_rate: entropy / 100 },
       });
       onLaunch(res.simulation_id, streamUrl(res.simulation_id));
@@ -64,6 +65,21 @@ export const ScenarioComposer: React.FC<{ onLaunch: (id: string, wsUrl: string) 
             <div className="text-right text-sm text-[#00D9FF]">{(entropy / 100).toFixed(2)}</div>
           </div>
         </div>
+
+        <div className="mt-6">
+          <label className="block text-gray-400 text-xs mb-2">Cognition Engine</label>
+          <div className="flex gap-3">
+            <ModeButton active={mode === 'heuristic'} onClick={() => setMode('heuristic')}
+              title="Heuristic" subtitle="Fast · deterministic · no LLM" />
+            <ModeButton active={mode === 'llm'} onClick={() => setMode('llm')}
+              title="LLM Agents" subtitle="Local Ollama · real reasoning · slower" />
+          </div>
+          {mode === 'llm' && (
+            <div className="text-xs text-[#FFB800] mt-2 font-mono">
+              LLM mode runs on your local Ollama and is capped (≤4 agents · 6 ticks · 2 runs) to stay watchable on CPU.
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="glass-panel p-6 rounded-2xl transition-all hover:shadow-[0_0_30px_rgba(108,99,255,0.1)]">
@@ -96,6 +112,14 @@ export const ScenarioComposer: React.FC<{ onLaunch: (id: string, wsUrl: string) 
     </div>
   );
 };
+
+const ModeButton: React.FC<{ active: boolean; onClick: () => void; title: string; subtitle: string }> = ({ active, onClick, title, subtitle }) => (
+  <button onClick={onClick}
+    className={`flex-1 text-left px-4 py-3 rounded-lg border transition-all ${active ? 'border-[#6C63FF] bg-[#6C63FF]/10 shadow-[0_0_15px_rgba(108,99,255,0.2)]' : 'border-[#333] bg-[#0A0A0F] hover:border-[#555]'}`}>
+    <div className={`text-sm font-medium ${active ? 'text-[#6C63FF]' : 'text-gray-300'}`}>{title}</div>
+    <div className="text-[10px] text-gray-500 font-mono mt-0.5">{subtitle}</div>
+  </button>
+);
 
 const AgentCard: React.FC<{ type: string; persona: string }> = ({ type, persona }) => (
   <div className="glass-panel p-6 rounded-2xl transition-all hover:shadow-[0_0_30px_rgba(108,99,255,0.1)]">

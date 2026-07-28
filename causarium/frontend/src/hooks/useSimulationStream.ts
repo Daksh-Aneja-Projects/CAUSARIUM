@@ -19,8 +19,10 @@ interface StreamState {
 
 const HUMAN: Record<string, (e: any) => string> = {
   status: (e) => `Status: ${e.status}`,
+  notice: (e) => e.message,
   run_start: (e) => `Run ${e.run} started (${e.agents} agents)`,
   tick: (e) => `Run ${e.run} · tick ${e.tick} — ${e.events} events${e.black_swan ? ' ⚡ BLACK SWAN' : ''}`,
+  agent_decision: (e) => `${e.persona} (${e.agent_type}): ${e.action_type} → ${e.target} — ${e.rationale}`,
   run_complete: (e) => `Run ${e.run} complete → ${e.outcome}`,
   complete: () => 'All runs + discovery complete',
   error: (e) => `Error: ${e.message}`,
