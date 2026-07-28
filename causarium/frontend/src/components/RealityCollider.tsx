@@ -1,354 +1,232 @@
 import React, { useEffect, useRef } from 'react';
 
 /**
- * Reality Collider - a LIVE force-directed network of the scenario's agents.
+ * Reality Collider - a free-flowing live field.
  *
- * Agent nodes float and drift continuously (repulsion + spring + Brownian jitter),
- * never frozen. As the simulation streams, pulse particles travel along edges to
- * show who is acting on whom in real time. Links illuminate and fade, nodes flare
- * when they act, and black swans burst as expanding shockwaves. Everything is
- * driven by streamed events - nothing about the topology is hardcoded.
- *
- * Sim state lives entirely in refs so the rAF loop never triggers React renders.
+ * The scenario's actors are particles that float FREELY inside the frame (mutual
+ * repulsion + gentle centering + Brownian drift + soft boundary bounce) - only
+ * the boundaries are fixed, positions are never hardcoded. As the simulation
+ * streams, glowing particles travel between actors to show who acts on whom, a
+ * relationship web accretes and decays, and each finished timeline sends a mote
+ * drifting into the future it produced. Everything is driven by the stream.
  */
 
 interface StreamEvent { type: string; message?: string; timestamp: string; raw: any }
 interface Lens { id: string; label: string; accent: string; icon: string; particle_term: string; outcome_vocab: Record<string, string> }
 export interface RealityColliderProps {
-  events: StreamEvent[];
-  status: string;
-  progress: number;
-  outcomes: Record<string, number>;
-  running: boolean;
-  paused?: boolean;
-  lens?: Lens | null;
+  events: StreamEvent[]; status: string; progress: number;
+  outcomes: Record<string, number>; running: boolean; paused?: boolean; lens?: Lens | null;
 }
 
-// ---- constants (inline) ----------------------------------------------------
-const BG = '#0A0A0F';
 const OUTCOME_COLORS: Record<string, string> = {
   SYSTEMIC_COLLAPSE: '#FF3366', CONFLICT_ESCALATION: '#FF7A45', MONOPOLY_CAPTURE: '#FFB800',
   DISRUPTIVE_INNOVATION: '#B36CFF', STABLE_COOPERATION: '#00E5A0', FRAGMENTED_STALEMATE: '#00D9FF',
 };
-const AGENT_PALETTE = ['#6C63FF', '#00D9FF', '#FF3366', '#FFB800', '#00E5A0', '#B36CFF', '#FF7A45'];
+const PALETTE = ['#6C63FF', '#00D9FF', '#FF3366', '#FFB800', '#00E5A0', '#B36CFF', '#FF7A45'];
 const COOP = new Set(['COOPERATE', 'FORM_ALLIANCE', 'NEGOTIATE', 'DE_ESCALATE']);
-const COOP_COLOR = '#00E5A0';
-const MAX_PULSES = 500;
+const MAX_PULSES = 600;
 
-// ---- helpers ---------------------------------------------------------------
-function hashString(s: string): number {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
-
-// Humanize raw agent type codes into short, readable labels.
-const HUMANIZE: Record<string, string> = {
-  EXECUTIVE_CEO: 'CEO', REGULATOR_DOMESTIC: 'Regulator', REGULATOR_FOREIGN: 'Foreign Reg',
-  MEDIA_SOCIAL: 'Social Media', MEDIA_PRESS: 'Press', COMPETITOR_DIRECT: 'Competitor',
-  COMPETITOR_ADJACENT: 'Rival', INVESTOR_INSTITUTIONAL: 'Investors', INVESTOR_RETAIL: 'Retail',
-  CUSTOMER_ENTERPRISE: 'Customers', CUSTOMER_CONSUMER: 'Consumers', SUPPLIER_KEY: 'Supplier',
-  EMPLOYEE_UNION: 'Union', PARTNER_STRATEGIC: 'Partner', ACTIVIST_NGO: 'Activists',
-  GOVERNMENT_LEGISLATIVE: 'Legislature', ENVIRONMENT: 'Environment', SHOCK: 'Shock',
-};
-function humanize(type: string): string {
-  if (HUMANIZE[type]) return HUMANIZE[type];
-  const head = type.split('_')[0] || type;
-  return head.charAt(0).toUpperCase() + head.slice(1).toLowerCase();
+function hash(s: string): number { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return Math.abs(h); }
+function short(t: string): string { return t.length > 16 ? t.slice(0, 15) + '…' : t; }
+function colorForOutcome(name: string, accent: string): string {
+  if (OUTCOME_COLORS[name]) return OUTCOME_COLORS[name];
+  return PALETTE[hash(name) % PALETTE.length] || accent;
 }
 
-// ---- sim types -------------------------------------------------------------
-interface Node {
-  key: string; type: string; label: string; color: string;
-  x: number; y: number; vx: number; vy: number;
-  homeAng: number;           // slot on the home ring (recomputed each frame for agents)
-  isSpecial: boolean;        // env / shock nodes anchor differently
-  flareUntil: number;        // radius bump when the node acts
-  redUntil: number;          // red flash on black swan
-  born: number;
-}
-interface Pulse {
-  from: string; to: string; t0: number; dur: number; color: string; done: boolean;
-}
-interface Edge { w: number; color: string; }       // persistent relationship weight (decays)
+interface Node { key: string; label: string; color: string; x: number; y: number; vx: number; vy: number; r: number; flare: number; red: number; }
+interface Pulse { from: string; to: string; t0: number; dur: number; color: string; }
 interface Ring { x: number; y: number; t0: number; dur: number; color: string; }
-interface Mote { x: number; y: number; vx: number; vy: number; color: string; born: number; }
-interface Ambient { x: number; y: number; vx: number; vy: number; }
+interface Mote { x: number; y: number; vx: number; vy: number; toKey: string | null; color: string; }
 
 export const RealityCollider: React.FC<RealityColliderProps> = ({ events, status, progress, outcomes, running, paused, lens }) => {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-
   const cursor = useRef(0);
   const nodes = useRef<Map<string, Node>>(new Map());
-  const order = useRef<string[]>([]);          // agent node keys in creation order (for ring layout)
   const pulses = useRef<Pulse[]>([]);
-  const edges = useRef<Map<string, Edge>>(new Map());
-  const rings = useRef<Ring[]>([]);            // shockwaves + arrival ripples
+  const edges = useRef<Map<string, { w: number; color: string }>>(new Map());
+  const rings = useRef<Ring[]>([]);
   const motes = useRef<Mote[]>([]);
-  const ambient = useRef<Ambient[]>([]);
-  const tickRef = useRef(0);
-  const flashUntil = useRef(0);                // white flash on injection
   const size = useRef({ w: 1200, h: 800 });
   const reduced = useRef(false);
+  const tickRef = useRef(0);
+  const accent = useRef('#6C63FF');
   const pausedRef = useRef(false);
-  const accentRef = useRef('#6C63FF');
-  accentRef.current = lens?.accent ?? '#6C63FF';
+  accent.current = lens?.accent ?? '#6C63FF';
   pausedRef.current = !!paused;
 
-  // Lazily create a node. Agents land on the home ring; env/shock are anchored.
-  const ensureNode = (key: string, type: string, now: number): Node => {
+  const ensure = (key: string, label: string): Node => {
     let n = nodes.current.get(key);
     if (n) return n;
-    const special = key === 'env' || key === 'shock';
     const { w, h } = size.current;
-    const seed = hashString(key + type);
+    const seed = hash(key + label);
+    const special = key === 'env' || key === 'shock';
     n = {
-      key, type, label: humanize(type),
-      color: special ? '#8892B0' : AGENT_PALETTE[hashString(type) % AGENT_PALETTE.length],
-      // spawn near center with a small random offset so they drift outward
-      x: w * 0.5 + (((seed % 100) / 100) - 0.5) * 120,
-      y: h * 0.5 + ((((seed >> 3) % 100) / 100) - 0.5) * 120,
-      vx: 0, vy: 0, homeAng: 0, isSpecial: special,
-      flareUntil: 0, redUntil: 0, born: now,
+      key, label: short(label),
+      color: special ? '#8892B0' : PALETTE[hash(label) % PALETTE.length],
+      // random spawn inside the frame; free from there
+      x: w * (0.2 + ((seed % 60) / 100)), y: h * (0.2 + (((seed >> 4) % 60) / 100)),
+      vx: (((seed % 7) - 3) / 3), vy: (((seed >> 3) % 7 - 3) / 3),
+      r: special ? 4 : 5, flare: 0, red: 0,
     };
     nodes.current.set(key, n);
-    if (!special) order.current.push(key);
     return n;
   };
-
-  const edgeKey = (a: string, b: string) => (a < b ? a + '|' + b : b + '|' + a);
-  const bumpEdge = (a: string, b: string, color: string) => {
+  const ekey = (a: string, b: string) => a < b ? a + '|' + b : b + '|' + a;
+  const bump = (a: string, b: string, color: string) => {
     if (a === b) return;
-    const k = edgeKey(a, b);
-    const e = edges.current.get(k);
-    if (e) { e.w = Math.min(1.6, e.w + 0.5); e.color = color; }
-    else edges.current.set(k, { w: 0.6, color });
+    const k = ekey(a, b); const e = edges.current.get(k);
+    if (e) { e.w = Math.min(1.8, e.w + 0.45); e.color = color; } else edges.current.set(k, { w: 0.5, color });
   };
-  const spawnPulse = (from: string, to: string, color: string, now: number) => {
+  const pulse = (from: string, to: string, color: string, now: number) => {
     if (!nodes.current.has(from) || !nodes.current.has(to)) return;
-    if (reduced.current && pulses.current.length > 60) return;
-    pulses.current.push({ from, to, t0: now, dur: 600 + Math.random() * 300, color, done: false });
+    pulses.current.push({ from, to, t0: now, dur: 650 + Math.random() * 350, color });
     if (pulses.current.length > MAX_PULSES) pulses.current.splice(0, pulses.current.length - MAX_PULSES);
   };
 
-  // ---- ingest new events (diff by events.length) ---------------------------
+  // ingest
   useEffect(() => {
     const now = typeof performance !== 'undefined' ? performance.now() : 0;
     for (let i = cursor.current; i < events.length; i++) {
-      const ev = events[i]; if (!ev) continue;
-      const raw = ev.raw || {};
-      const rt: string = raw.type ?? ev.type ?? '';
-
+      const raw = events[i]?.raw || {}; const rt = raw.type ?? events[i]?.type ?? '';
       if (rt === 'agents' && Array.isArray(raw.agents)) {
-        for (const a of raw.agents) ensureNode(String(a.slot), String(a.type ?? 'AGENT'), now);
-        ensureNode('env', 'ENVIRONMENT', now);
-        ensureNode('shock', 'SHOCK', now);
+        for (const a of raw.agents) ensure(String(a.slot), String(a.type ?? 'Actor'));
+        ensure('env', 'Environment'); ensure('shock', 'Shock');
       } else if (rt === 'interactions' && Array.isArray(raw.links)) {
         for (const l of raw.links) {
-          const srcKey = l.s === 'shock' ? 'shock' : String(l.s);
-          const src = nodes.current.get(srcKey);
+          const s = l.s === 'shock' ? 'shock' : String(l.s);
+          const src = nodes.current.get(s);
           const coop = COOP.has(String(l.action ?? '').toUpperCase());
-          const color = l.agg ? '#FF3366' : coop ? COOP_COLOR : accentRef.current;
-          if (src) src.flareUntil = now + 420;   // the actor flares
-          if (l.t === 'all') {
-            for (const key of order.current) { spawnPulse('shock', key, color, now); bumpEdge('shock', key, color); }
-          } else {
-            const dstKey = l.t === 'env' ? 'env' : String(l.t);
-            spawnPulse(srcKey, dstKey, color, now);
-            bumpEdge(srcKey, dstKey, color);
-          }
-          if (l.swan) rings.current.push({ x: size.current.w / 2, y: size.current.h / 2, t0: now, dur: 1400, color: '#FF3366' });
+          const color = l.agg ? '#FF3366' : coop ? '#00E5A0' : accent.current;
+          if (src) src.flare = now + 380;
+          if (l.t === 'all') { nodes.current.forEach((_, k) => { if (k !== 'shock') { pulse('shock', k, color, now); bump('shock', k, color); } }); }
+          else { const t = l.t === 'env' ? 'env' : String(l.t); pulse(s, t, color, now); bump(s, t, color); }
         }
       } else if (rt === 'tick') {
-        if (typeof raw.tick === 'number') tickRef.current = raw.tick;
+        tickRef.current = raw.tick ?? tickRef.current;
         if (raw.black_swan) {
-          rings.current.push({ x: size.current.w / 2, y: size.current.h / 2, t0: now, dur: 1600, color: '#FF3366' });
-          nodes.current.forEach(n => { n.redUntil = now + 500; });
+          rings.current.push({ x: size.current.w / 2, y: size.current.h / 2, t0: now, dur: 1100, color: '#FF3366' });
+          nodes.current.forEach(n => { n.red = now + 500; });
         }
       } else if (rt === 'run_complete') {
-        const oc = String(raw.outcome ?? 'UNKNOWN');
-        const c = OUTCOME_COLORS[oc] ?? accentRef.current;
-        const { w, h } = size.current;
-        motes.current.push({
-          x: w / 2 + (Math.random() - 0.5) * 40, y: h / 2 + (Math.random() - 0.5) * 40,
-          vx: (30 - w / 2) * 0.0012, vy: (h - 40 - h / 2) * 0.0012, color: c, born: now,
-        });
-      } else if (rt === 'injected' || ev.type === 'injected') {
-        flashUntil.current = now + 260;
+        // a finished timeline drifts into the future it produced
+        const outcome = String(raw.outcome ?? '');
+        const col = colorForOutcome(outcome, accent.current);
+        let toKey: string | null = null;
+        nodes.current.forEach((n, k) => { if (n.label === short(outcome) || n.label === outcome) toKey = k; });
+        motes.current.push({ x: size.current.w / 2, y: size.current.h / 2, vx: 0, vy: 0, toKey, color: col });
+        if (motes.current.length > 240) motes.current.splice(0, motes.current.length - 240);
       }
     }
     cursor.current = events.length;
   }, [events.length]);
 
-  // ---- canvas + animation loop ---------------------------------------------
+  // physics + render
   useEffect(() => {
     reduced.current = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
     const canvas = canvasRef.current!, ctx = canvas.getContext('2d')!;
     let raf = 0;
-
     const fit = () => {
       const r = wrapRef.current!.getBoundingClientRect();
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       size.current = { w: r.width, h: r.height };
-      canvas.width = Math.max(1, r.width * dpr); canvas.height = Math.max(1, r.height * dpr);
+      canvas.width = r.width * dpr; canvas.height = r.height * dpr;
       canvas.style.width = r.width + 'px'; canvas.style.height = r.height + 'px';
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
     fit();
     const ro = new ResizeObserver(fit); ro.observe(wrapRef.current!);
 
-    // ambient idle points (drift when no agents have arrived yet)
-    ambient.current = Array.from({ length: 14 }, () => ({
-      x: Math.random() * size.current.w, y: Math.random() * size.current.h,
-      vx: (Math.random() - 0.5) * 0.25, vy: (Math.random() - 0.5) * 0.25,
-    }));
-
-    // interpolate a point along a node->node line (nodes keep moving, so read live)
-    const nodePos = (key: string) => nodes.current.get(key);
-
     const step = () => {
       const { w, h } = size.current;
       const now = typeof performance !== 'undefined' ? performance.now() : 0;
-      const accent = accentRef.current;
-      const cx = w / 2, cy = h / 2;
-      const ringR = Math.min(w, h) * 0.30;
-      const pausedK = pausedRef.current ? 0.28 : 1;      // dim motion while paused
-      const jitterAmp = (reduced.current ? 0.04 : 0.16) * pausedK;
+      const pad = 60, cx = w / 2, cy = h / 2;
+      const slow = pausedRef.current ? 0.25 : 1;
+      const arr = Array.from(nodes.current.values());
 
-      // background: translucent fill leaves motion trails; opaque if reduced-motion
+      // free-flow forces
+      for (let i = 0; i < arr.length; i++) {
+        const a = arr[i];
+        // mutual repulsion (spread out)
+        for (let j = i + 1; j < arr.length; j++) {
+          const b = arr[j];
+          let dx = a.x - b.x, dy = a.y - b.y; let d2 = dx * dx + dy * dy || 1;
+          if (d2 < 90000) { const f = 2600 / d2; const d = Math.sqrt(d2); const fx = (dx / d) * f, fy = (dy / d) * f; a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy; }
+        }
+        // gentle pull to center so they roam but stay in view
+        a.vx += (cx - a.x) * 0.0009; a.vy += (cy - a.y) * 0.0009;
+        // brownian drift -> free flow
+        if (!reduced.current) { a.vx += (Math.random() - 0.5) * 0.7; a.vy += (Math.random() - 0.5) * 0.7; }
+      }
+      // integrate + soft boundary bounce
+      for (const a of arr) {
+        a.vx *= 0.9; a.vy *= 0.9;
+        const sp = Math.hypot(a.vx, a.vy); if (sp > 3.2) { a.vx = a.vx / sp * 3.2; a.vy = a.vy / sp * 3.2; }
+        a.x += a.vx * slow; a.y += a.vy * slow;
+        if (a.x < pad) { a.x = pad; a.vx = Math.abs(a.vx) * 0.6; }
+        if (a.x > w - pad) { a.x = w - pad; a.vx = -Math.abs(a.vx) * 0.6; }
+        if (a.y < pad) { a.y = pad; a.vy = Math.abs(a.vy) * 0.6; }
+        if (a.y > h - pad) { a.y = h - pad; a.vy = -Math.abs(a.vy) * 0.6; }
+      }
+
+      // trail fade
       ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = reduced.current ? BG : 'rgba(10,10,15,0.25)';
+      ctx.fillStyle = reduced.current ? '#0A0A0F' : 'rgba(10,10,15,0.26)';
       ctx.fillRect(0, 0, w, h);
 
-      const nodeList = Array.from(nodes.current.values());
-      const agentCount = order.current.length;
-
-      // ---- PHYSICS: repulsion + spring-to-home + jitter + damping ----------
-      // assign even home slots on the ring to agent nodes each frame
-      order.current.forEach((k, i) => {
-        const n = nodes.current.get(k); if (n) n.homeAng = (i / Math.max(1, agentCount)) * Math.PI * 2 - Math.PI / 2;
-      });
-      for (let i = 0; i < nodeList.length; i++) {
-        const a = nodeList[i];
-        // mutual repulsion (inverse-square, capped)
-        for (let j = i + 1; j < nodeList.length; j++) {
-          const b = nodeList[j];
-          let dx = a.x - b.x, dy = a.y - b.y;
-          let d2 = dx * dx + dy * dy; if (d2 < 1) d2 = 1;
-          const f = Math.min(0.9, 5200 / d2);
-          const d = Math.sqrt(d2); dx /= d; dy /= d;
-          a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f;
-        }
-        // home target: agents on the ring, env at center, shock above center
-        let hx = cx, hy = cy;
-        if (a.key === 'shock') { hx = cx; hy = cy - ringR * 1.15; }
-        else if (a.key === 'env') { hx = cx; hy = cy; }
-        else { hx = cx + Math.cos(a.homeAng) * ringR; hy = cy + Math.sin(a.homeAng) * ringR; }
-        a.vx += (hx - a.x) * 0.012; a.vy += (hy - a.y) * 0.012;
-        // gentle Brownian jitter so nothing ever freezes
-        a.vx += (Math.random() - 0.5) * jitterAmp; a.vy += (Math.random() - 0.5) * jitterAmp;
-        // damping + integrate
-        a.vx *= 0.9; a.vy *= 0.9; a.x += a.vx * pausedK; a.y += a.vy * pausedK;
-        // soft bounds
-        const m = 44;
-        if (a.x < m) { a.x = m; a.vx *= -0.5; } if (a.x > w - m) { a.x = w - m; a.vx *= -0.5; }
-        if (a.y < m) { a.y = m; a.vy *= -0.5; } if (a.y > h - m) { a.y = h - m; a.vy *= -0.5; }
-      }
-
-      // ---- relationship edges (decaying web) -------------------------------
-      ctx.globalCompositeOperation = 'source-over';
+      // persistent relationship web (decays)
+      ctx.globalCompositeOperation = 'lighter';
       edges.current.forEach((e, k) => {
-        e.w *= 0.992;                                   // decay over time
-        if (e.w < 0.03) { edges.current.delete(k); return; }
-        const [ka, kb] = k.split('|');
-        const a = nodePos(ka), b = nodePos(kb); if (!a || !b) return;
+        e.w *= 0.985; if (e.w < 0.04) { edges.current.delete(k); return; }
+        const [ka, kb] = k.split('|'); const a = nodes.current.get(ka), b = nodes.current.get(kb);
+        if (!a || !b) return;
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-        ctx.strokeStyle = e.color + Math.round(Math.min(0.5, e.w * 0.4) * 255).toString(16).padStart(2, '0');
-        ctx.lineWidth = 0.6 + e.w * 0.6; ctx.stroke();
+        ctx.strokeStyle = e.color + '55'; ctx.lineWidth = Math.min(2, e.w); ctx.stroke();
       });
 
-      // ---- pulses travelling along edges (additive glow) -------------------
-      ctx.globalCompositeOperation = 'lighter';
-      for (const p of pulses.current) {
-        const a = nodePos(p.from), b = nodePos(p.to); if (!a || !b) { p.done = true; continue; }
-        const t = (now - p.t0) / p.dur;
-        if (t >= 1) {
-          if (!p.done) { rings.current.push({ x: b.x, y: b.y, t0: now, dur: 420, color: p.color }); p.done = true; }
-          continue;
-        }
-        // slight arc via a perpendicular midpoint bulge
-        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-        const nx = -(b.y - a.y), ny = (b.x - a.x);
-        const nl = Math.hypot(nx, ny) || 1; const bulge = 22;
-        const qx = mx + (nx / nl) * bulge, qy = my + (ny / nl) * bulge;
-        const it = 1 - t;
-        const px = it * it * a.x + 2 * it * t * qx + t * t * b.x;
-        const py = it * it * a.y + 2 * it * t * qy + t * t * b.y;
-        const r = 2.6;
-        const g = ctx.createRadialGradient(px, py, 0, px, py, r * 3);
-        g.addColorStop(0, p.color); g.addColorStop(1, 'transparent');
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(px, py, r * 3, 0, Math.PI * 2); ctx.fill();
-      }
-      pulses.current = pulses.current.filter(p => !p.done);
+      // pulses travel between (moving) nodes -> live connections
+      pulses.current = pulses.current.filter(p => {
+        const a = nodes.current.get(p.from), b = nodes.current.get(p.to); if (!a || !b) return false;
+        const t = (now - p.t0) / p.dur; if (t >= 1) return false;
+        const e = 1 - (1 - t) * (1 - t);
+        const x = a.x + (b.x - a.x) * e, y = a.y + (b.y - a.y) * e;
+        const g = ctx.createRadialGradient(x, y, 0, x, y, 6); g.addColorStop(0, p.color); g.addColorStop(1, 'transparent');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
+        if (t > 0.9) { ctx.strokeStyle = p.color + '66'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(b.x, b.y, (t - 0.9) * 60, 0, Math.PI * 2); ctx.stroke(); }
+        return true;
+      });
 
-      // ---- shockwaves + arrival ripples ------------------------------------
-      for (const rg of rings.current) {
-        const t = (now - rg.t0) / rg.dur; if (t >= 1) continue;
-        const maxR = rg.dur > 1000 ? Math.min(w, h) * 0.55 : 26;
-        const rr = t * maxR;
-        ctx.beginPath(); ctx.arc(rg.x, rg.y, rr, 0, Math.PI * 2);
-        ctx.strokeStyle = rg.color + Math.round((1 - t) * 200).toString(16).padStart(2, '0');
-        ctx.lineWidth = rg.dur > 1000 ? 2.4 : 1.2; ctx.stroke();
-      }
-      rings.current = rings.current.filter(rg => (now - rg.t0) / rg.dur < 1);
+      // timeline motes drift into the future they produced
+      motes.current = motes.current.filter(m => {
+        const target = m.toKey ? nodes.current.get(m.toKey) : null;
+        const tx = target ? target.x : cx, ty = target ? target.y : cy - size.current.h * 0.35;
+        m.vx += (tx - m.x) * 0.02; m.vy += (ty - m.y) * 0.02; m.vx *= 0.9; m.vy *= 0.9;
+        m.x += m.vx; m.y += m.vy;
+        ctx.fillStyle = m.color; ctx.beginPath(); ctx.arc(m.x, m.y, 1.6, 0, Math.PI * 2); ctx.fill();
+        return Math.hypot(tx - m.x, ty - m.y) > 8;
+      });
 
-      // ---- nodes (additive glow) -------------------------------------------
-      for (const n of nodeList) {
-        const flaring = now < n.flareUntil ? (n.flareUntil - now) / 420 : 0;
-        const red = now < n.redUntil;
-        const base = n.isSpecial ? 5 : 7;
-        const r = base + flaring * 6;
-        const col = red ? '#FF3366' : n.color;
-        const g = ctx.createRadialGradient(n.x, n.y, 0, n.x, n.y, r * 2.4);
-        g.addColorStop(0, col); g.addColorStop(0.5, col + '88'); g.addColorStop(1, 'transparent');
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(n.x, n.y, r * 2.4, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = col; ctx.beginPath(); ctx.arc(n.x, n.y, r * 0.5, 0, Math.PI * 2); ctx.fill();
-      }
+      // shockwaves
+      rings.current = rings.current.filter(r => {
+        const t = (now - r.t0) / r.dur; if (t >= 1) return false;
+        ctx.beginPath(); ctx.arc(r.x, r.y, t * Math.max(w, h) * 0.5, 0, Math.PI * 2);
+        ctx.strokeStyle = r.color + Math.round((1 - t) * 180).toString(16).padStart(2, '0'); ctx.lineWidth = 2; ctx.stroke();
+        return true;
+      });
 
-      // ---- outcome motes drifting to the tally -----------------------------
-      ctx.globalCompositeOperation = 'lighter';
-      motes.current = motes.current.filter(mo => (now - mo.born) < 3000);
-      for (const mo of motes.current) {
-        mo.x += mo.vx * 16 * pausedK; mo.y += mo.vy * 16 * pausedK;
-        const g = ctx.createRadialGradient(mo.x, mo.y, 0, mo.x, mo.y, 6);
-        g.addColorStop(0, mo.color); g.addColorStop(1, 'transparent');
-        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(mo.x, mo.y, 6, 0, Math.PI * 2); ctx.fill();
-      }
-
-      // ---- idle ambient drift (only meaningful when no agents yet) ----------
-      if (agentCount === 0) {
-        for (const a of ambient.current) {
-          a.x += a.vx; a.y += a.vy;
-          if (a.x < 0 || a.x > w) a.vx *= -1; if (a.y < 0 || a.y > h) a.vy *= -1;
-          const g = ctx.createRadialGradient(a.x, a.y, 0, a.x, a.y, 4);
-          g.addColorStop(0, accent + '99'); g.addColorStop(1, 'transparent');
-          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(a.x, a.y, 4, 0, Math.PI * 2); ctx.fill();
-        }
-      }
-
-      // ---- labels (source-over so text stays legible) ----------------------
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      ctx.fillStyle = 'rgba(255,255,255,0.72)';
-      for (const n of nodeList) ctx.fillText(n.label, n.x, n.y + 12);
-
-      // ---- injection flash --------------------------------------------------
-      if (now < flashUntil.current) {
+      // nodes
+      for (const a of arr) {
+        const flaring = now < a.flare; const red = now < a.red;
+        const rr = a.r + (flaring ? 4 : 0);
+        const col = red ? '#FF3366' : a.color;
+        const g = ctx.createRadialGradient(a.x, a.y, 0, a.x, a.y, rr * 3.5);
+        g.addColorStop(0, col); g.addColorStop(1, 'transparent');
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(a.x, a.y, rr * 3.5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = col; ctx.beginPath(); ctx.arc(a.x, a.y, rr, 0, Math.PI * 2); ctx.fill();
         ctx.globalCompositeOperation = 'source-over';
-        ctx.fillStyle = 'rgba(255,255,255,' + ((flashUntil.current - now) / 260) * 0.35 + ')';
-        ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = 'rgba(230,232,240,0.85)'; ctx.font = '10px "JetBrains Mono", monospace'; ctx.textAlign = 'center';
+        ctx.fillText(a.label, a.x, a.y + rr + 12);
       }
 
       raf = requestAnimationFrame(step);
@@ -357,41 +235,30 @@ export const RealityCollider: React.FC<RealityColliderProps> = ({ events, status
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, []);
 
-  // ---- HUD (React render; reads refs, no per-frame state) -------------------
-  const agentCount = order.current.length;
-  const term = lens?.particle_term ?? 'actors';
-
+  const nodeCount = nodes.current.size;
+  const term = lens?.particle_term ?? 'signals';
   return (
-    <div ref={wrapRef} className="absolute inset-0 overflow-hidden" style={{ background: BG }}>
+    <div ref={wrapRef} className="absolute inset-0 overflow-hidden">
       <canvas ref={canvasRef} className="absolute inset-0 block" />
-
-      {/* top-left: lens label + status dot + actor/tick readout */}
       <div className="absolute top-4 left-5 font-mono text-xs pointer-events-none select-none">
         <div className="text-white/90 tracking-wide">{lens ? lens.label : 'Reality Collider'}</div>
         <div className="mt-1 flex items-center gap-2 text-gray-500">
-          <span className="w-1.5 h-1.5 rounded-full" style={{ background: paused ? '#FFB800' : accentRef.current }} />
-          {status}
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: paused ? '#FFB800' : accent.current }} />{status}
         </div>
-        <div className="text-gray-600 mt-0.5">{agentCount} {term} · tick {tickRef.current}</div>
+        <div className="text-gray-600 mt-0.5">{nodeCount} actors · tick {tickRef.current}</div>
       </div>
-
-      {/* bottom-left: outcome tally pills, relabeled by the lens vocab */}
       {Object.keys(outcomes).length > 0 && (
-        <div className="absolute bottom-4 left-5 flex flex-col gap-1 pointer-events-none">
-          {Object.entries(outcomes).map(([o, n]) => (
-            <span key={o} className="text-[10px] font-mono flex items-center gap-1.5" style={{ color: OUTCOME_COLORS[o] ?? accentRef.current }}>
-              <span className="w-2 h-2 rounded-full inline-block" style={{ background: OUTCOME_COLORS[o] ?? accentRef.current }} />
+        <div className="absolute bottom-4 left-5 flex flex-col gap-1 pointer-events-none max-h-[40vh] flex-wrap">
+          {Object.entries(outcomes).sort((a, b) => b[1] - a[1]).map(([o, n]) => (
+            <span key={o} className="text-[10px] font-mono flex items-center gap-1.5" style={{ color: colorForOutcome(o, accent.current) }}>
+              <span className="w-2 h-2 rounded-full inline-block" style={{ background: colorForOutcome(o, accent.current) }} />
               {lens?.outcome_vocab?.[o] ?? o} · {n}
             </span>
           ))}
         </div>
       )}
-
-      {/* idle hint */}
-      {!running && agentCount === 0 && (
-        <div className="absolute inset-0 flex items-center justify-center text-gray-600 font-mono text-sm pointer-events-none">
-          Awaiting reality collision
-        </div>
+      {!running && nodeCount === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center text-gray-600 font-mono text-sm">Awaiting reality collision</div>
       )}
     </div>
   );

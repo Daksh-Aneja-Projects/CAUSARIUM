@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     DEFAULT_TICK_DEPTH: int = 25
     MAX_CONCURRENT_RUNS: int = 500
 
+    # Ground prompt->scenario synthesis with a quick web search (best-effort).
+    SCENARIO_WEB_GROUNDING: bool = True
+
     # CORS (comma-separated origins, or "*" for any)
     CORS_ORIGINS: str = "*"
 
@@ -40,6 +43,7 @@ class Settings(BaseSettings):
     LLM_DEFAULT_MODEL: str = "ollama_chat/llama3.1:8b"       # agent cognition
     LLM_FALLBACK_MODEL: str = "ollama_chat/mistral:7b-instruct-v0.3-q4_K_M"
     LLM_CAUSAL_MODEL: str = "ollama_chat/qwen2.5-coder:7b"   # analytical, temp 0
+    LLM_SYNTH_MODEL: str = "ollama_chat/qwen2.5-coder:7b"    # prompt->scenario JSON
     LLM_FAST_MODEL: str = "ollama_chat/llama3.2:1b"          # cheap/quick calls
     LLM_EMBED_MODEL: str = "ollama/nomic-embed-text"         # vector embeddings
 

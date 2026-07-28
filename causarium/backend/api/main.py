@@ -53,10 +53,12 @@ async def startup_event() -> None:
 from backend.api.routers.simulations import router as simulations_router  # noqa: E402
 from backend.api.routers.catalog import router as catalog_router  # noqa: E402
 from backend.api.routers.auth import router as auth_router  # noqa: E402
+from backend.api.routers.scenario import router as scenario_router  # noqa: E402
 
 app.include_router(simulations_router, prefix="/v1/simulations", tags=["simulations"])
 app.include_router(catalog_router, prefix="/v1/catalog", tags=["catalog"])
 app.include_router(auth_router, prefix="/v1/auth", tags=["auth"])
+app.include_router(scenario_router, prefix="/v1/scenario", tags=["scenario"])
 
 
 # Optional / auxiliary routers — include defensively so a single broken stub

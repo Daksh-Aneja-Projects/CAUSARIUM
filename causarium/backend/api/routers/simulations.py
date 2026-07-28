@@ -36,6 +36,8 @@ class SimulationCreateRequest(BaseModel):
     population: Optional[List[Dict[str, Any]]] = None
     lens: Optional[Any] = Field(None, description="Lens id string or object")
     scenario_id: Optional[str] = None
+    contenders: Optional[List[str]] = None
+    prompt: Optional[str] = None
 
 
 class SimulationCreateResponse(BaseModel):
@@ -216,8 +218,19 @@ async def stream(websocket: WebSocket, simulation_id: str) -> None:
 
     queue = session.subscribe()
     try:
-        # Replay current state so late subscribers aren't blank.
+        # Replay a snapshot so late subscribers (e.g. navigating back to Collide
+        # after a run finished) see the actual actors and outcomes, not a blank.
         await websocket.send_json({"type": "status", **session.public_state()})
+        population = session.config.get("population") or []
+        if population:
+            await websocket.send_json({
+                "type": "agents", "run": 0, "replay": True,
+                "agents": [{"slot": i, "type": a.get("agent_type", "Actor")}
+                           for i, a in enumerate(population)],
+            })
+        for outcome, n in (session._outcome_distribution() or {}).items():
+            for _ in range(n):
+                await websocket.send_json({"type": "run_complete", "run": 0, "replay": True, "outcome": outcome})
         while True:
             event = await queue.get()
             await websocket.send_json(event)

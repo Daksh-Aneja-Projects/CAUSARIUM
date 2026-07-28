@@ -33,6 +33,13 @@ export interface Scenario {
 }
 export interface ScenarioCatalog { scenarios: Scenario[]; lenses: Lens[]; }
 
+export interface SynthesizedScenario {
+  title: string; domain: string; question: string; prompt: string;
+  lens_id: string; context: string; contenders: string[];
+  constraint_params: Record<string, number>;
+  population: Record<string, any>[]; synthesized: boolean;
+}
+
 export interface CreateSimulationPayload {
   scenario_name: string;
   description?: string;
@@ -43,6 +50,8 @@ export interface CreateSimulationPayload {
   population?: Record<string, any>[];
   lens?: string | Lens;
   scenario_id?: string;
+  contenders?: string[];
+  prompt?: string;
 }
 
 export const causariumApi = {
@@ -77,6 +86,10 @@ export const causariumApi = {
   },
   async getScenarios(): Promise<ScenarioCatalog> {
     return http('/catalog/scenarios');
+  },
+
+  async synthesize(prompt: string, use_web?: boolean): Promise<SynthesizedScenario> {
+    return http('/scenario/synthesize', { method: 'POST', body: JSON.stringify({ prompt, use_web }) });
   },
 
   async getGraph(simulationId: string): Promise<GraphData> {

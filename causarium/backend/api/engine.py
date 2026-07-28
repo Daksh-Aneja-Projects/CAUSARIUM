@@ -91,9 +91,12 @@ class SimulationSession:
             "run_count": self.config.get("run_count"),
             "tick_depth": self.config.get("tick_depth"),
             "title": self.config.get("title"),
+            "prompt": self.config.get("prompt"),
             "mode": self.config.get("mode", "heuristic"),
             "lens": self.config.get("lens"),
             "scenario_id": self.config.get("scenario_id"),
+            "contenders": self.config.get("contenders", []),
+            "roster": self.roster(),
             "created_at": self.created_at,
             "outcome_distribution": self._outcome_distribution(),
             "error": self.error,
@@ -101,6 +104,13 @@ class SimulationSession:
 
     def _outcome_distribution(self) -> Dict[str, int]:
         return dict(Counter(r.terminal_outcome for r in self.runs if r.terminal_outcome))
+
+    def roster(self) -> List[Dict[str, Any]]:
+        pop = self.config.get("population") or []
+        contenders = set(self.config.get("contenders") or [])
+        return [{"index": i, "name": a.get("agent_type", f"Actor {i}"),
+                 "role": a.get("role", ""), "contender": a.get("agent_type") in contenders}
+                for i, a in enumerate(pop)]
 
 
 class SimulationEngine:
@@ -143,6 +153,8 @@ class SimulationEngine:
             "constraint_params": cp,
             "lens": lens,
             "scenario_id": config.get("scenario_id"),
+            "contenders": [str(c) for c in (config.get("contenders") or [])],
+            "prompt": config.get("prompt") or config.get("description"),
             "tenant_id": config.get("tenant_id", "public"),
             # Per-tick delay paces the live network so interactions are watchable.
             "stream_delay": float(config.get("stream_delay", 0.04)),
@@ -231,6 +243,7 @@ class SimulationEngine:
                 run_id=run_id, events=event_log, world_state=world,
                 simulation_id=session.simulation_id, converged=converged,
             )
+            self._tag_winner(result, cfg.get("contenders") or [])
             session.runs.append(result)
             await session.emit({
                 "type": "run_complete",
@@ -289,6 +302,7 @@ class SimulationEngine:
                 on_event=on_event,
                 before_tick=before_tick,
             )
+            self._tag_winner(result, cfg.get("contenders") or [])
             session.runs.append(result)
             await session.emit({
                 "type": "run_complete", "run": run_idx,
@@ -344,6 +358,23 @@ class SimulationEngine:
             agent.capital = round(agent.capital - 0.5, 4)
         world.global_events.append({"type": "BLACK_SWAN", "action_type": shock, "tick": world.tick})
         return {"kind": "SHOCK", "detail": shock}
+
+    @staticmethod
+    def _tag_winner(result: RunResult, contenders: List[str]) -> None:
+        """For competitive prompts, the run's outcome is the prevailing contender
+        (highest terminal influence + capital), so the aggregate answers the
+        actual question (who/what wins)."""
+        if not contenders:
+            return
+        cset = set(contenders)
+        best_name, best_score = None, -1e9
+        for a in result.terminal_agents.values():
+            if a.get("agent_type") in cset:
+                score = float(a.get("influence", 0)) + 0.3 * float(a.get("capital", 0))
+                if score > best_score:
+                    best_score, best_name = score, a.get("agent_type")
+        if best_name:
+            result.terminal_outcome = best_name
 
     async def _finish_discovery(self, session: SimulationSession) -> None:
         session.status = "DISCOVERY"
