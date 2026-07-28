@@ -26,8 +26,10 @@ class RealityReportGenerator:
     def render_html(self, simulation_id: str, data: Dict[str, Any]) -> str:
         template = self.env.get_template("reality_report.html")
         report_id = str(uuid4())
+        # Avoid clobbering the explicit template args if the data carries them.
+        payload = {k: v for k, v in data.items() if k not in ("simulation_id", "report_id")}
         return template.render(
-            simulation_id=str(simulation_id), report_id=report_id, **data
+            simulation_id=str(simulation_id), report_id=report_id, **payload
         )
 
     def generate_report(

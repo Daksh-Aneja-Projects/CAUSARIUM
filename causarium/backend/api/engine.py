@@ -20,9 +20,10 @@ from typing import Any, Dict, List, Optional
 from ..simulation.action_resolver import ActionResolver
 from ..simulation.convergence import ConvergenceDetector
 from ..simulation.run_result_builder import build_run_result
-from ..simulation.scenario import HeuristicPolicy, build_world, step_world
+from ..simulation.scenario import HeuristicPolicy, build_world, run_scenario, step_world
 from ..models.run_result import RunResult
 from ..workers.discovery_worker import DiscoveryWorker
+from ..graph.dna_tagger import DNA_DIMENSIONS
 from .scenario_presets import DEFAULT_POPULATION, DEFAULT_CONSTRAINTS
 
 
@@ -201,6 +202,95 @@ class SimulationEngine:
             "status": "COMPLETE",
             "summary": self._summary(session),
         })
+
+    # ------------------------------------------------------------------ #
+    def graph_data(self, session: SimulationSession) -> Dict[str, Any]:
+        """
+        Node-link representation of the aggregate causal structure for the
+        Reality Graph Explorer, derived from the do-calculus structural edges
+        (agent_type:action signatures that reproduce across runs).
+        """
+        edges_in = (session.discovery or {}).get("structural_edges", [])
+        degree: Counter = Counter()
+        for e in edges_in:
+            degree[e["source"]] += 1
+            degree[e["target"]] += 1
+
+        nodes = []
+        for node_id in sorted(degree):
+            agent_type, _, action = node_id.partition(":")
+            nodes.append({
+                "id": node_id,
+                "agent_type": agent_type,
+                "action": action,
+                "degree": degree[node_id],
+            })
+        edges = [
+            {"source": e["source"], "target": e["target"],
+             "weight": e.get("weight", 0.0), "frequency": e.get("frequency", 0.0)}
+            for e in edges_in
+        ]
+        return {
+            "simulation_id": session.simulation_id,
+            "nodes": nodes,
+            "edges": edges,
+            "attractors": [
+                {"label": a["label"], "convergence_rate": a["convergence_rate"]}
+                for a in (session.discovery or {}).get("attractors", [])
+            ],
+        }
+
+    async def run_counterfactual(
+        self, session: SimulationSession, agent_index: int, attribute: str, value: float
+    ) -> Dict[str, Any]:
+        """
+        Counterfactual comparison: re-run the scenario with one agent's attribute
+        overridden, then diff terminal-outcome distribution and mean reality-DNA
+        against the baseline. A real do-what-if, not a mock.
+        """
+        cfg = session.config
+        population = [dict(a) for a in cfg["population"]]
+        if not (0 <= agent_index < len(population)):
+            agent_index = 0
+        population[agent_index][attribute] = value
+
+        n = min(cfg["run_count"], 12)  # keep counterfactuals snappy
+        cf_runs = await asyncio.gather(*[
+            asyncio.to_thread(
+                run_scenario, f"{session.simulation_id}-cf{i}", population,
+                cfg["tick_depth"], cfg["constraint_params"], session.simulation_id, False,
+            )
+            for i in range(n)
+        ])
+
+        base_outcomes = self._outcome_dist(session.runs[:n] or session.runs)
+        cf_outcomes = self._outcome_dist(cf_runs)
+        base_dna = self._mean_dna(session.runs)
+        cf_dna = self._mean_dna(cf_runs)
+        dna_delta = {
+            d: round(cf_dna.get(d, 0.0) - base_dna.get(d, 0.0), 4) for d in DNA_DIMENSIONS
+        }
+        divergence = self._tv_distance(base_outcomes, cf_outcomes)
+
+        return {
+            "intervention": {"agent_index": agent_index, "attribute": attribute, "value": value},
+            "baseline_outcomes": base_outcomes,
+            "counterfactual_outcomes": cf_outcomes,
+            "dna_delta": dna_delta,
+            "divergence_score": round(divergence, 4),
+            "runs_compared": n,
+        }
+
+    @staticmethod
+    def _outcome_dist(runs: List[RunResult]) -> Dict[str, float]:
+        counts = Counter(r.terminal_outcome for r in runs if r.terminal_outcome)
+        total = sum(counts.values()) or 1
+        return {k: round(v / total, 4) for k, v in counts.items()}
+
+    @staticmethod
+    def _tv_distance(a: Dict[str, float], b: Dict[str, float]) -> float:
+        keys = set(a) | set(b)
+        return 0.5 * sum(abs(a.get(k, 0.0) - b.get(k, 0.0)) for k in keys)
 
     # ------------------------------------------------------------------ #
     @staticmethod

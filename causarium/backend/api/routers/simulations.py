@@ -79,6 +79,35 @@ async def get_discovery(simulation_id: str) -> Dict[str, Any]:
     return session.discovery
 
 
+@router.get("/{simulation_id}/graph")
+async def get_graph(simulation_id: str) -> Dict[str, Any]:
+    session = engine.get(simulation_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    if session.discovery is None:
+        raise HTTPException(status_code=202, detail="Graph not ready")
+    return engine.graph_data(session)
+
+
+class InterventionRequest(BaseModel):
+    agent_index: int = Field(0, ge=0)
+    attribute: str = Field("risk_tolerance")
+    value: float = Field(0.5)
+    tick: Optional[int] = None  # accepted for UI compatibility
+
+
+@router.post("/{simulation_id}/intervene")
+async def intervene(simulation_id: str, payload: InterventionRequest) -> Dict[str, Any]:
+    session = engine.get(simulation_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    if not session.runs:
+        raise HTTPException(status_code=409, detail="Run the simulation before intervening")
+    return await engine.run_counterfactual(
+        session, payload.agent_index, payload.attribute, payload.value
+    )
+
+
 @router.post("/{simulation_id}/report")
 async def generate_report(simulation_id: str) -> Response:
     session = engine.get(simulation_id)

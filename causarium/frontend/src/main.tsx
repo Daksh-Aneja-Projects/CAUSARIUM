@@ -55,7 +55,7 @@ const App = () => {
       </main>
 
       {/* Overlays */}
-      {showGraph && <RealityGraphExplorer onClose={() => setShowGraph(false)} />}
+      {showGraph && <RealityGraphExplorer simulationId={simulationId} onClose={() => setShowGraph(false)} />}
       {showIntervention && <InterventionConsole simulationId={simulationId} onClose={() => setShowIntervention(false)} />}
       {showReport && <RealityReport simulationId={simulationId} onClose={() => setShowReport(false)} />}
     </div>

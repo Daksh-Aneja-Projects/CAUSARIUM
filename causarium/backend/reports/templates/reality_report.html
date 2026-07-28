@@ -3,60 +3,113 @@
 <head>
     <title>CAUSARIUM - Reality Report</title>
     <style>
-        body { font-family: 'Helvetica Neue', sans-serif; color: #111; line-height: 1.6; }
-        h1, h2 { color: #000; }
-        h1 { border-bottom: 2px solid #000; padding-bottom: 10px; }
-        .section { margin-bottom: 30px; }
-        .card { background: #f9f9f9; padding: 15px; margin-bottom: 15px; border-left: 4px solid #333; }
+        body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #1a1a1a; line-height: 1.5; font-size: 12px; }
+        h1 { color: #12121A; border-bottom: 3px solid #6C63FF; padding-bottom: 8px; font-size: 26px; }
+        h2 { color: #12121A; border-bottom: 1px solid #ddd; padding-bottom: 4px; margin-top: 24px; font-size: 16px; }
+        .muted { color: #666; font-size: 10px; }
+        .section { margin-bottom: 18px; }
+        .card { background: #f6f6fb; padding: 10px 14px; margin-bottom: 8px; border-left: 4px solid #6C63FF; }
         .metric { font-weight: bold; }
+        .pill { display: inline-block; background: #eef; border: 1px solid #ccd; border-radius: 10px; padding: 2px 8px; margin: 2px; font-size: 10px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+        td { padding: 3px 6px; border-bottom: 1px solid #eee; font-size: 11px; }
+        .bar { background: #6C63FF; height: 8px; display: inline-block; border-radius: 2px; }
+        .grid td { width: 50%; vertical-align: top; }
     </style>
 </head>
 <body>
-    <h1>Reality Report</h1>
-    <p><span class="metric">Simulation ID:</span> {{ simulation_id }}</p>
-    <p><span class="metric">Report ID:</span> {{ report_id }}</p>
-    
+    <h1>CAUSARIUM Reality Report</h1>
+    <p class="muted">Simulation {{ simulation_id }} &middot; Report {{ report_id }}{% if title %} &middot; {{ title }}{% endif %}</p>
+
     <div class="section">
         <h2>Executive Summary</h2>
         <p>{{ executive_summary }}</p>
+        {% if context %}<p class="muted">Scenario: {{ context }}</p>{% endif %}
     </div>
 
+    {% if outcome_distribution %}
     <div class="section">
-        <h2>Attractors (Convergence Zones)</h2>
-        <ul>
-        {% for attractor in attractors %}
-            <li><strong>{{ attractor.label }}</strong> (Convergence: {{ "%.1f"|format(attractor.convergence_rate * 100) }}%) - Earliest Deterministic Tick: {{ attractor.earliest_deterministic_tick }}</li>
+        <h2>Terminal Outcome Distribution</h2>
+        {% for outcome, count in outcome_distribution.items() %}
+            <span class="pill">{{ outcome }} &times; {{ count }}</span>
         {% endfor %}
-        </ul>
+    </div>
+    {% endif %}
+
+    <div class="section">
+        <h2>Attractors (Convergence Basins)</h2>
+        {% if attractors %}<ul>
+        {% for a in attractors %}
+            <li><strong>{{ a.label }}</strong> — convergence {{ "%.1f"|format(a.convergence_rate * 100) }}%, deterministic by tick {{ a.earliest_deterministic_tick }}</li>
+        {% endfor %}
+        </ul>{% else %}<p class="muted">No dominant attractor exceeded the 15% threshold.</p>{% endif %}
     </div>
 
     <div class="section">
         <h2>Temporal Choke Points</h2>
-        <ul>
+        {% if choke_points %}<ul>
         {% for cp in choke_points %}
-            <li><strong>Tick {{ cp.tick }}</strong>: Intervention Efficacy {{ cp.intervention_efficacy }}</li>
+            <li><strong>Tick {{ cp.tick }}</strong> — intervention efficacy {{ "%.0f"|format(cp.intervention_efficacy * 100) }}%{% if cp.decay_after_tick %} (decays after tick {{ cp.decay_after_tick }}){% endif %}</li>
         {% endfor %}
-        </ul>
+        </ul>{% else %}<p class="muted">None detected.</p>{% endif %}
     </div>
+
+    <table class="grid"><tr>
+        <td>
+            <h2>Butterfly Events</h2>
+            {% if butterfly_events %}<ul>
+            {% for b in butterfly_events[:5] %}
+                <li>{{ b.event_label }} — amplification &times;{{ "%.1f"|format(b.amplification_ratio) }}</li>
+            {% endfor %}
+            </ul>{% else %}<p class="muted">None above threshold.</p>{% endif %}
+        </td>
+        <td>
+            <h2>Singularities</h2>
+            {% if singularities %}<ul>
+            {% for s in singularities[:5] %}
+                <li>Tick {{ s.tick }} — {{ s.decision }}</li>
+            {% endfor %}
+            </ul>{% else %}<p class="muted">No bifurcations detected.</p>{% endif %}
+        </td>
+    </tr></table>
+
+    <div class="section">
+        <h2>Causal Paradoxes (Feedback Loops)</h2>
+        {% if causal_paradoxes %}<ul>
+        {% for p in causal_paradoxes[:5] %}
+            <li>{{ p.description }} (strength {{ "%.2f"|format(p.cycle_strength) }})</li>
+        {% endfor %}
+        </ul>{% else %}<p class="muted">None detected.</p>{% endif %}
+    </div>
+
+    {% if reality_dna_distribution %}
+    <div class="section">
+        <h2>Mean Reality DNA</h2>
+        <table>
+        {% for dim, val in reality_dna_distribution.items() %}
+            <tr>
+                <td style="width:25%; text-transform:uppercase;">{{ dim }}</td>
+                <td><span class="bar" style="width: {{ (val * 200)|int }}px;"></span> {{ "%.2f"|format(val) }}</td>
+            </tr>
+        {% endfor %}
+        </table>
+    </div>
+    {% endif %}
 
     <div class="section">
         <h2>Top Hidden Causal Chains</h2>
-        {% for chain in hidden_causal_chains %}
+        {% for chain in hidden_causal_chains[:6] %}
             <div class="card">
-                <p><span class="metric">Chain ID:</span> {{ chain.chain_id }}</p>
-                <p><span class="metric">Terminal Outcome:</span> {{ chain.terminal_outcome }}</p>
-                <p><span class="metric">Causal Weight:</span> {{ chain.causal_weight }}</p>
+                <span class="metric">{{ chain.chain_id }}</span> &rarr; {{ chain.terminal_outcome }}
+                <span class="muted">(weight {{ "%.2f"|format(chain.causal_weight) }}, frequency {{ "%.0f"|format(chain.frequency * 100) }}%, {{ chain.events|length }} events)</span>
             </div>
+        {% else %}
+            <p class="muted">No significant chains extracted.</p>
         {% endfor %}
     </div>
-    
-    <div class="section">
-        <h2>Recommended Interventions</h2>
-        <ul>
-        {% for intervention in recommended_interventions %}
-            <li>{{ intervention }}</li>
-        {% endfor %}
-        </ul>
-    </div>
+
+    <p class="muted" style="text-align:center; margin-top:24px;">
+        Generated by CAUSARIUM Reality Intelligence Platform &middot; Confidential
+    </p>
 </body>
 </html>

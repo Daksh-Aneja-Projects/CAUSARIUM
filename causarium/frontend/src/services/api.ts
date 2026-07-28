@@ -51,10 +51,47 @@ export const causariumApi = {
     return { download_url: URL.createObjectURL(blob) };
   },
 
-  async triggerIntervention(payload: any): Promise<any> {
-    return http('/interventions/', { method: 'POST', body: JSON.stringify(payload) });
+  async getGraph(simulationId: string): Promise<GraphData> {
+    return http(`/simulations/${simulationId}/graph`);
+  },
+
+  async triggerIntervention(
+    simulationId: string,
+    payload: { agent_index: number; attribute: string; value: number; tick?: number }
+  ): Promise<CounterfactualResult> {
+    return http(`/simulations/${simulationId}/intervene`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 };
+
+export interface GraphNode {
+  id: string;
+  agent_type: string;
+  action: string;
+  degree: number;
+}
+export interface GraphEdge {
+  source: string;
+  target: string;
+  weight: number;
+  frequency: number;
+}
+export interface GraphData {
+  simulation_id: string;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  attractors: { label: string; convergence_rate: number }[];
+}
+export interface CounterfactualResult {
+  intervention: { agent_index: number; attribute: string; value: number };
+  baseline_outcomes: Record<string, number>;
+  counterfactual_outcomes: Record<string, number>;
+  dna_delta: Record<string, number>;
+  divergence_score: number;
+  runs_compared: number;
+}
 
 export function streamUrl(simulationId: string): string {
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
