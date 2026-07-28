@@ -1,0 +1,5 @@
+apiVersion: v2
+name: causarium
+version: 0.1.0
+appVersion: "0.1.0"
+description: Minimal Helm chart for CAUSARIUM air-gapped deployment scaffolding

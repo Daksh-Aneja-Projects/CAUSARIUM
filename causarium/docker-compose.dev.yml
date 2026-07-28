@@ -1,0 +1,67 @@
+version: "3.9"
+services:
+  backend:
+    build: ./backend
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - POSTGRES_URL
+      - REDIS_URL
+      - NEO4J_URL
+      - NEO4J_USER
+      - NEO4J_PASSWORD
+      - QDRANT_URL
+      - ANTHROPIC_API_KEY
+      - OPENAI_API_KEY
+      - JWT_SECRET_KEY
+      - JWT_ALGORITHM
+      - ACCESS_TOKEN_EXPIRE_MINUTES
+      - CELERY_BROKER_URL
+      - CELERY_RESULT_BACKEND
+      - ENVIRONMENT
+      - LOG_LEVEL
+      - TENANT_MODE
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+
+  worker:
+    build: ./backend
+    command: celery -A workers.celery_app worker --loglevel=info
+    volumes:
+      - ./backend:/app
+    environment:
+      - POSTGRES_URL
+      - REDIS_URL
+      - NEO4J_URL
+      - NEO4J_USER
+      - NEO4J_PASSWORD
+      - QDRANT_URL
+      - ANTHROPIC_API_KEY
+      - OPENAI_API_KEY
+      - JWT_SECRET_KEY
+      - JWT_ALGORITHM
+      - ACCESS_TOKEN_EXPIRE_MINUTES
+      - CELERY_BROKER_URL
+      - CELERY_RESULT_BACKEND
+      - ENVIRONMENT
+      - LOG_LEVEL
+      - TENANT_MODE
+    depends_on:
+      backend:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
