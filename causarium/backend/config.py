@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: Optional[SecretStr] = None
     OPENAI_API_KEY: Optional[SecretStr] = None
 
+    # Auth / multi-tenancy (opt-in; permissive in dev so the UI works without tokens)
+    AUTH_REQUIRED: bool = False
+    JWT_SECRET_KEY: str = "dev-insecure-change-me"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+
     # LLM routing --------------------------------------------------------- #
     # Provider: "ollama" (local, default) or "hosted" (Anthropic/OpenAI via keys).
     LLM_PROVIDER: str = "ollama"

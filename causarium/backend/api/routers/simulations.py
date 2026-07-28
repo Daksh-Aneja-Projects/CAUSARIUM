@@ -14,11 +14,12 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from ..engine import engine
+from ..auth import Principal, current_principal
 from ...reports.generator import RealityReportGenerator
 
 router = APIRouter()
@@ -44,8 +45,13 @@ class SimulationCreateResponse(BaseModel):
 
 
 @router.post("/", response_model=SimulationCreateResponse, status_code=status.HTTP_201_CREATED)
-async def create_simulation(payload: SimulationCreateRequest) -> SimulationCreateResponse:
-    session = engine.create(payload.model_dump())
+async def create_simulation(
+    payload: SimulationCreateRequest,
+    principal: Principal = Depends(current_principal),
+) -> SimulationCreateResponse:
+    config = payload.model_dump()
+    config["tenant_id"] = principal.tenant_id  # scope the run to the caller's tenant
+    session = engine.create(config)
     # Launch execution in the background; it streams to WS subscribers.
     asyncio.create_task(engine.run(session.simulation_id))
     return SimulationCreateResponse(

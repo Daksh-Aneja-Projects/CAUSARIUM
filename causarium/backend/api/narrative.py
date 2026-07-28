@@ -62,6 +62,9 @@ def _act(a: str) -> str:
 def humanize_signature(sig: str) -> str:
     """'MEDIA_SOCIAL:DEFECT' -> 'social media breaks ranks'."""
     agent, _, action = (sig or "").partition(":")
+    if agent == "EXOGENOUS":
+        # An exogenous shock: the action IS the event; don't double up the noun.
+        return SHOCK_HUMAN.get(action, "an external shock") + " strikes"
     return f"{_agent(agent)} {_act(action)}"
 
 
@@ -156,7 +159,7 @@ def narrate_chain(c: Dict[str, Any], vocab: Dict[str, str]) -> str:
     events = c.get("events", [])
     if not events:
         return "A causal chain with no readable steps."
-    steps = [f"{_agent(e.get('agent_type'))} {_act(e.get('action'))}" for e in events[:4]]
+    steps = [humanize_signature(f"{e.get('agent_type')}:{e.get('action')}") for e in events[:4]]
     chain = ", then ".join(steps)
     outcome = _outcome(c.get("terminal_outcome"), vocab)
     freq = round(c.get("frequency", 0) * 100)
