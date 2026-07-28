@@ -11,6 +11,7 @@ Thin, resilient wrapper over LiteLLM providing:
 
 import hashlib
 import json
+import logging
 import re
 from typing import Any, Dict, List, Optional
 
@@ -20,11 +21,27 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from ..config import settings
 from .cache import llm_cache
 
+logger = logging.getLogger(__name__)
+
 # Configure LiteLLM to silently drop unsupported params across providers.
 litellm.drop_params = True
 
 DEFAULT_MODEL = settings.LLM_DEFAULT_MODEL
 FALLBACK_MODEL = settings.LLM_FALLBACK_MODEL
+
+
+def _provider_kwargs(model: str, want_json: bool = False) -> Dict[str, Any]:
+    """Extra LiteLLM kwargs for the active provider (Ollama api_base, JSON hint)."""
+    kwargs: Dict[str, Any] = {"timeout": settings.LLM_REQUEST_TIMEOUT}
+    if model.startswith("ollama"):
+        kwargs["api_base"] = settings.OLLAMA_BASE_URL
+        # NOTE: deliberately do NOT pass format=json / response_format to Ollama.
+        # LiteLLM 1.41's ollama(_chat) handlers crash on JSON mode (KeyError
+        # 'name'/'arguments' via a spurious function-call path). Our prompts
+        # already demand a bare JSON object and _extract_json parses robustly.
+    elif want_json:
+        kwargs["response_format"] = {"type": "json_object"}
+    return kwargs
 
 
 # --------------------------------------------------------------------------- #
@@ -43,12 +60,16 @@ async def generate_response(
     max_tokens: int = 1024,
     fallback: bool = True,
     use_cache: bool = True,
+    want_json: bool = False,
 ) -> str:
     """
-    Generate a text response from the LLM.
+    Generate a text response from the LLM (Ollama by default).
 
-    In offline mode (no provider key configured, or LLM_OFFLINE_MODE=true) this
-    returns a deterministic heuristic string instead of calling any provider.
+    In offline mode (LLM_OFFLINE_MODE=true, or hosted provider with no key) this
+    returns a deterministic heuristic string. If a real provider is configured
+    but every attempt fails at runtime (e.g. Ollama not running), the router
+    degrades gracefully to the same heuristic policy instead of crashing the
+    simulation.
     """
     if settings.offline:
         return _offline_text(messages)
@@ -72,6 +93,7 @@ async def generate_response(
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                **_provider_kwargs(current_model, want_json=want_json),
             )
             content = response.choices[0].message.content or ""
             if use_cache:
@@ -81,7 +103,11 @@ async def generate_response(
             last_exception = e
             continue
 
-    raise RuntimeError(f"All LLM routing attempts failed. Last error: {last_exception}")
+    logger.warning(
+        "All LLM providers failed (%s); falling back to heuristic policy.",
+        last_exception,
+    )
+    return _offline_text(messages)
 
 
 async def generate_json(
@@ -103,7 +129,8 @@ async def generate_json(
         return _offline_json(messages, schema)
 
     text = await generate_response(
-        messages, model=model, temperature=temperature, max_tokens=max_tokens
+        messages, model=model, temperature=temperature, max_tokens=max_tokens,
+        want_json=True,
     )
     parsed = _extract_json(text)
     if parsed is not None:

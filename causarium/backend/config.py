@@ -15,11 +15,25 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: Optional[SecretStr] = None
     OPENAI_API_KEY: Optional[SecretStr] = None
 
-    # LLM routing
-    LLM_DEFAULT_MODEL: str = "claude-sonnet-4-6"
-    LLM_FALLBACK_MODEL: str = "gpt-4o-mini"
-    # When no provider key is configured (dev/CI), the router falls back to a
-    # deterministic heuristic policy so simulations still run end-to-end.
+    # LLM routing --------------------------------------------------------- #
+    # Provider: "ollama" (local, default) or "hosted" (Anthropic/OpenAI via keys).
+    LLM_PROVIDER: str = "ollama"
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+
+    # Role-based model mapping. Ollama models are prefixed ollama_chat/ so
+    # LiteLLM uses the chat endpoint; embeddings use the plain ollama/ prefix.
+    # Defaults are tuned for a CPU / 16GB machine (models <= ~8B).
+    LLM_DEFAULT_MODEL: str = "ollama_chat/llama3.1:8b"       # agent cognition
+    LLM_FALLBACK_MODEL: str = "ollama_chat/mistral:7b-instruct-v0.3-q4_K_M"
+    LLM_CAUSAL_MODEL: str = "ollama_chat/qwen2.5-coder:7b"   # analytical, temp 0
+    LLM_FAST_MODEL: str = "ollama_chat/llama3.2:1b"          # cheap/quick calls
+    LLM_EMBED_MODEL: str = "ollama/nomic-embed-text"         # vector embeddings
+
+    LLM_REQUEST_TIMEOUT: int = 120  # seconds; CPU inference can be slow
+
+    # When Ollama/hosted providers are unreachable (or explicitly set true), the
+    # router falls back to a deterministic heuristic policy so simulations still
+    # run end-to-end. Auto-detected when None (see `offline`).
     LLM_OFFLINE_MODE: Optional[bool] = None
 
     model_config = SettingsConfigDict(
@@ -38,10 +52,23 @@ class Settings(BaseSettings):
         return False
 
     @property
+    def use_ollama(self) -> bool:
+        return self.LLM_PROVIDER.lower() == "ollama"
+
+    @property
     def offline(self) -> bool:
-        """Resolved offline flag: explicit override, else auto-detect missing keys."""
+        """
+        Resolved offline flag.
+
+        Explicit override wins. Otherwise: with the local Ollama provider we are
+        never "offline" up front (the router attempts Ollama and only falls back
+        to the heuristic policy if the call actually fails); with hosted
+        providers we are offline when no usable API key is configured.
+        """
         if self.LLM_OFFLINE_MODE is not None:
             return self.LLM_OFFLINE_MODE
+        if self.use_ollama:
+            return False
         return not self.has_llm_key
 
 settings = Settings()
