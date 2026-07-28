@@ -15,6 +15,24 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export interface Lens {
+  id: string; label: string; accent: string; icon: string;
+  primary_metric: string; emphasis: string[]; particle_term: string;
+  outcome_vocab: Record<string, string>;
+}
+export interface AgentCard {
+  type: string; label: string; icon: string; blurb: string;
+  category: string; defaults: Record<string, number>;
+}
+export interface AgentCategory { id: string; label: string; agents: AgentCard[]; }
+export interface AgentCatalog { categories: AgentCategory[]; count: number; }
+export interface Scenario {
+  id: string; industry: string; lens: string; title: string; horizon: string;
+  context: string; constraint_params: Record<string, number>;
+  population: Record<string, any>[]; lens_detail: Lens; agent_count: number;
+}
+export interface ScenarioCatalog { scenarios: Scenario[]; lenses: Lens[]; }
+
 export interface CreateSimulationPayload {
   scenario_name: string;
   description?: string;
@@ -22,6 +40,9 @@ export interface CreateSimulationPayload {
   tick_depth: number;
   mode?: 'heuristic' | 'llm';
   constraint_params?: Record<string, number>;
+  population?: Record<string, any>[];
+  lens?: string | Lens;
+  scenario_id?: string;
 }
 
 export const causariumApi = {
@@ -49,6 +70,13 @@ export const causariumApi = {
     if (!res.ok) throw new Error(`Report generation failed: ${res.status}`);
     const blob = await res.blob();
     return { download_url: URL.createObjectURL(blob) };
+  },
+
+  async getAgentCatalog(): Promise<AgentCatalog> {
+    return http('/catalog/agents');
+  },
+  async getScenarios(): Promise<ScenarioCatalog> {
+    return http('/catalog/scenarios');
   },
 
   async getGraph(simulationId: string): Promise<GraphData> {

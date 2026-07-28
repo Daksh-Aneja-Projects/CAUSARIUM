@@ -49,10 +49,12 @@ async def startup_event() -> None:
     logger.info("Starting CAUSARIUM backend (LLM offline={})", settings.offline)
 
 
-# Core engine router (always available).
+# Core engine + catalogue routers (always available).
 from backend.api.routers.simulations import router as simulations_router  # noqa: E402
+from backend.api.routers.catalog import router as catalog_router  # noqa: E402
 
 app.include_router(simulations_router, prefix="/v1/simulations", tags=["simulations"])
+app.include_router(catalog_router, prefix="/v1/catalog", tags=["catalog"])
 
 
 # Optional / auxiliary routers — include defensively so a single broken stub

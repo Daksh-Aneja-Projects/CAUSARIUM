@@ -33,6 +33,8 @@ class SimulationCreateRequest(BaseModel):
     mode: str = Field("heuristic", description="'heuristic' (fast, no LLM) or 'llm'")
     constraint_params: Optional[Dict[str, float]] = None
     population: Optional[List[Dict[str, Any]]] = None
+    lens: Optional[Any] = Field(None, description="Lens id string or object")
+    scenario_id: Optional[str] = None
 
 
 class SimulationCreateResponse(BaseModel):

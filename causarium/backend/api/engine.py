@@ -92,6 +92,8 @@ class SimulationSession:
             "tick_depth": self.config.get("tick_depth"),
             "title": self.config.get("title"),
             "mode": self.config.get("mode", "heuristic"),
+            "lens": self.config.get("lens"),
+            "scenario_id": self.config.get("scenario_id"),
             "created_at": self.created_at,
             "outcome_distribution": self._outcome_distribution(),
             "error": self.error,
@@ -121,8 +123,16 @@ class SimulationEngine:
 
     # ------------------------------------------------------------------ #
     def _merge_config(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        from .catalog import LENSES
+
         cp = dict(DEFAULT_CONSTRAINTS)
         cp.update(config.get("constraint_params") or {})
+        # Resolve the analysis lens (id string, full object, or default).
+        lens = config.get("lens")
+        if isinstance(lens, str):
+            lens = LENSES.get(lens)
+        if not isinstance(lens, dict):
+            lens = LENSES.get(config.get("lens_id", ""), LENSES["strategy"])
         return {
             "title": config.get("title") or config.get("scenario_name") or "Untitled scenario",
             "context": config.get("context") or config.get("description") or "",
@@ -131,6 +141,9 @@ class SimulationEngine:
             "mode": config.get("mode", "heuristic"),
             "population": config.get("population") or DEFAULT_POPULATION,
             "constraint_params": cp,
+            "lens": lens,
+            "scenario_id": config.get("scenario_id"),
+            "tenant_id": config.get("tenant_id", "public"),
             # Small per-tick delay makes the run visibly stream in the UI.
             "stream_delay": float(config.get("stream_delay", 0.015)),
         }
@@ -330,6 +343,7 @@ class SimulationEngine:
         )
         session.discovery["reality_dna_distribution"] = self._mean_dna(session.runs)
         session.discovery["outcome_distribution"] = session._outcome_distribution()
+        session.discovery["lens"] = session.config.get("lens")
 
         # Best-effort persistence (Neo4j graph + DNA vectors) — never blocks.
         await self._persist(session)
