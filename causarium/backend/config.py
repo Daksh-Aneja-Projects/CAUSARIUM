@@ -6,6 +6,14 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     LOG_LEVEL: str = "INFO"
 
+    # Simulation defaults
+    DEFAULT_RUN_COUNT: int = 12
+    DEFAULT_TICK_DEPTH: int = 25
+    MAX_CONCURRENT_RUNS: int = 500
+
+    # CORS (comma-separated origins, or "*" for any)
+    CORS_ORIGINS: str = "*"
+
     POSTGRES_URL: str = Field(
         "postgresql+asyncpg://postgres:postgres@localhost:5432/causarium",
         description="Async Postgres DSN"

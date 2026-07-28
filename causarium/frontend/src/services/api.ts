@@ -1,65 +1,62 @@
 import { Simulation, DiscoveryData } from '../types';
 
-const API_BASE_URL = 'https://api.causarium.io/v1';
+// Same-origin: Vite proxies /v1 and /health to the backend on :8000.
+const API_BASE = '/v1';
+
+async function http<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...init,
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`API ${res.status} ${res.statusText}: ${body}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+export interface CreateSimulationPayload {
+  scenario_name: string;
+  description?: string;
+  run_count: number;
+  tick_depth: number;
+  mode?: 'heuristic' | 'llm';
+  constraint_params?: Record<string, number>;
+}
 
 export const causariumApi = {
-  async createSimulation(payload: any): Promise<{ simulation_id: string; status: string; websocket_url: string }> {
-    // In a real implementation this would fetch, but we simulate it for now to avoid CORS/network issues without backend
-    return {
-      simulation_id: 'sim-' + Math.random().toString(36).substr(2, 9),
-      status: 'QUEUED',
-      websocket_url: `wss://api.causarium.io/v1/simulations/stream`,
-    };
+  async createSimulation(
+    payload: CreateSimulationPayload
+  ): Promise<{ simulation_id: string; status: string; websocket_url: string }> {
+    return http('/simulations/', { method: 'POST', body: JSON.stringify(payload) });
   },
 
-  async getSimulationStatus(simulationId: string): Promise<Simulation> {
-    // Mock response
-    return {
-      simulation_id: simulationId,
-      title: 'Germany Market Entry Q4 2026',
-      context: 'We are a $2B US SaaS company...',
-      status: 'RUNNING',
-      tenant_id: 'tenant-1',
-      created_at: new Date().toISOString(),
-      run_config: {
-        run_count: 200,
-        tick_depth: 30,
-        constraint_params: { entropy_rate: 0.3, cascade_coefficient: 1.8, black_swan_probability: 0.02 }
-      },
-      discovery_config: { enable_attractors: true, enable_choke_points: true, enable_butterfly_scan: true, enable_singularity_finder: true }
-    };
+  async getSimulationStatus(simulationId: string): Promise<any> {
+    return http(`/simulations/${simulationId}`);
   },
 
   async getDiscoveryData(simulationId: string): Promise<DiscoveryData> {
-    return {
-      simulation_id: simulationId,
-      run_count: 200,
-      completed_at: new Date().toISOString(),
-      attractors: [
-        { attractor_id: 'ATT-007', label: 'Regulatory Consolidation', convergence_rate: 0.67, earliest_deterministic_tick: 14 }
-      ],
-      repellers: [],
-      choke_points: [
-        { choke_point_id: 'TCP-012', tick: 7, intervention_efficacy: 0.89 }
-      ],
-      butterfly_events: [],
-      singularities: [],
-      causal_paradoxes: [],
-      hidden_causal_chains: [],
-      reality_dna_distribution: { aggression: 0.72, innovation: 0.34, trust: 0.21, risk: 0.88, chaos: 0.61 }
-    };
+    return http(`/simulations/${simulationId}/discovery`);
   },
 
-  async triggerIntervention(payload: any) {
-    return { success: true };
+  async listSimulations(): Promise<{ simulations: any[] }> {
+    return http('/simulations/');
   },
 
-  async generateReport(simulationId: string) {
-    return {
-      report_id: 'rpt-' + Math.random().toString(36).substr(2, 9),
-      download_url: '#',
-      format: 'PDF',
-      pages: 12
-    };
-  }
+  // Returns a blob URL for the generated PDF report.
+  async generateReport(simulationId: string): Promise<{ download_url: string }> {
+    const res = await fetch(`${API_BASE}/simulations/${simulationId}/report`, { method: 'POST' });
+    if (!res.ok) throw new Error(`Report generation failed: ${res.status}`);
+    const blob = await res.blob();
+    return { download_url: URL.createObjectURL(blob) };
+  },
+
+  async triggerIntervention(payload: any): Promise<any> {
+    return http('/interventions/', { method: 'POST', body: JSON.stringify(payload) });
+  },
 };
+
+export function streamUrl(simulationId: string): string {
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  return `${proto}://${window.location.host}/v1/simulations/${simulationId}/stream`;
+}

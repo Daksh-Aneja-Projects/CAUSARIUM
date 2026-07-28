@@ -1,50 +1,76 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export type StreamEvent = {
-  type: 'RUN_STARTED' | 'RUN_COMPLETED' | 'DISCOVERY_STARTED' | 'ATTRACTOR_FOUND' | 'CHOKE_POINT_FOUND' | 'BUTTERFLY_FOUND' | 'SIMULATION_COMPLETE';
-  payload: any;
+  type: string;
+  message?: string;
   timestamp: string;
+  raw: any;
+};
+
+interface StreamState {
+  events: StreamEvent[];
+  isConnected: boolean;
+  progress: number;      // 0-100
+  status: string;
+  currentRun: number;
+  outcomes: Record<string, number>;
+  complete: boolean;
+}
+
+const HUMAN: Record<string, (e: any) => string> = {
+  status: (e) => `Status: ${e.status}`,
+  run_start: (e) => `Run ${e.run} started (${e.agents} agents)`,
+  tick: (e) => `Run ${e.run} · tick ${e.tick} — ${e.events} events${e.black_swan ? ' ⚡ BLACK SWAN' : ''}`,
+  run_complete: (e) => `Run ${e.run} complete → ${e.outcome}`,
+  complete: () => 'All runs + discovery complete',
+  error: (e) => `Error: ${e.message}`,
 };
 
 export function useSimulationStream(websocketUrl: string | null) {
-  const [events, setEvents] = useState<StreamEvent[]>([]);
-  const [isConnected, setIsConnected] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [state, setState] = useState<StreamState>({
+    events: [], isConnected: false, progress: 0, status: 'CONNECTING',
+    currentRun: 0, outcomes: {}, complete: false,
+  });
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     if (!websocketUrl) return;
+    const ws = new WebSocket(websocketUrl);
+    wsRef.current = ws;
 
-    // Mocking websocket behavior for the UI demo purposes
-    setIsConnected(true);
-    let currentProgress = 0;
-    
-    const interval = setInterval(() => {
-      currentProgress += 5;
-      if (currentProgress <= 100) {
-        setProgress(currentProgress);
-        
-        const mockEvents: StreamEvent['type'][] = ['RUN_STARTED', 'RUN_COMPLETED', 'ATTRACTOR_FOUND'];
-        const randomEvent = mockEvents[Math.floor(Math.random() * mockEvents.length)];
-        
-        setEvents(prev => [...prev, {
-          type: randomEvent,
-          payload: { message: `Event ${randomEvent} occurred` },
-          timestamp: new Date().toISOString()
-        }]);
-      }
-      
-      if (currentProgress >= 100) {
-        setEvents(prev => [...prev, {
-          type: 'SIMULATION_COMPLETE',
-          payload: { message: 'All runs and discovery complete' },
-          timestamp: new Date().toISOString()
-        }]);
-        clearInterval(interval);
-      }
-    }, 500);
+    ws.onopen = () => setState((s) => ({ ...s, isConnected: true }));
 
-    return () => clearInterval(interval);
+    ws.onmessage = (msg) => {
+      let data: any;
+      try { data = JSON.parse(msg.data); } catch { return; }
+
+      setState((s) => {
+        const next: StreamState = { ...s };
+        // Only log meaningful events (throttle raw ticks a little).
+        const label = HUMAN[data.type]?.(data) ?? data.type;
+        if (data.type !== 'tick' || data.tick % 5 === 0 || data.black_swan) {
+          next.events = [
+            ...s.events,
+            { type: data.type, message: label, timestamp: new Date().toISOString(), raw: data },
+          ].slice(-200);
+        }
+        if (typeof data.progress === 'number') next.progress = Math.round(data.progress * 100);
+        if (data.status) next.status = data.status;
+        if (typeof data.run === 'number') next.currentRun = data.run + 1;
+        if (data.type === 'run_complete' && data.outcome) {
+          next.outcomes = { ...s.outcomes, [data.outcome]: (s.outcomes[data.outcome] || 0) + 1 };
+        }
+        if (data.type === 'complete') { next.progress = 100; next.status = 'COMPLETE'; next.complete = true; }
+        if (data.type === 'error') { next.status = 'FAILED'; }
+        return next;
+      });
+    };
+
+    ws.onclose = () => setState((s) => ({ ...s, isConnected: false }));
+    ws.onerror = () => setState((s) => ({ ...s, isConnected: false }));
+
+    return () => ws.close();
   }, [websocketUrl]);
 
-  return { events, isConnected, progress };
+  return state;
 }

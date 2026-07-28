@@ -1,6 +1,6 @@
 """Discovery result models — one per discovery engine (PRD §12)."""
 
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 from pydantic import BaseModel, Field
 
 
@@ -54,8 +54,8 @@ class Singularity(BaseModel):
     simulation_id: str
     tick: int
     decision: str
-    outcome_cluster_a: Dict[str, float] = Field(default_factory=dict)
-    outcome_cluster_b: Dict[str, float] = Field(default_factory=dict)
+    outcome_cluster_a: Dict[str, Any] = Field(default_factory=dict)
+    outcome_cluster_b: Dict[str, Any] = Field(default_factory=dict)
     middle_outcome_frequency: float = 0.0
     bimodality: float = 0.0
     decision_sensitivity: Optional[str] = None

@@ -1,34 +1,71 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from backend.config import get_settings
-from backend.api.routers.admin import router as admin_router
-from backend.api.routers.developer import router as developer_router
-from backend.api.routers.intervention import router as intervention_router
-from backend.api.routers.reports import router as reports_router
-from backend.api.routers.simulations import router as simulations_router
-
 
 settings = get_settings()
 
-
 app = FastAPI(title="CAUSARIUM Reality Intelligence Platform", version="1.0.0")
+
+# CORS — allow the Vite dev server (and, by default, any origin) to call the API.
+_origins = ["*"] if settings.CORS_ORIGINS.strip() == "*" else [
+    o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.get("/health", tags=["meta"])
+async def health() -> dict:
+    return {"status": "ok", "service": "causarium", "offline_llm": settings.offline}
+
+
+@app.get("/", tags=["meta"])
+async def root() -> dict:
+    return {
+        "name": "CAUSARIUM Reality Intelligence Platform",
+        "version": "1.0.0",
+        "docs": "/docs",
+        "endpoints": {
+            "create_simulation": "POST /v1/simulations",
+            "get_simulation": "GET /v1/simulations/{id}",
+            "discovery": "GET /v1/simulations/{id}/discovery",
+            "stream": "WS /v1/simulations/{id}/stream",
+            "report": "POST /v1/simulations/{id}/report",
+        },
+    }
 
 
 @app.on_event("startup")
 async def startup_event() -> None:
-    logger.info("Starting CAUSARIUM backend")
+    logger.info("Starting CAUSARIUM backend (LLM offline={})", settings.offline)
 
 
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    logger.info("Shutting down CAUSARIUM backend")
-
+# Core engine router (always available).
+from backend.api.routers.simulations import router as simulations_router  # noqa: E402
 
 app.include_router(simulations_router, prefix="/v1/simulations", tags=["simulations"])
-app.include_router(intervention_router, prefix="/v1", tags=["interventions"])
-app.include_router(reports_router, prefix="/v1", tags=["reports"])
-app.include_router(developer_router, prefix="/v1", tags=["developer"])
-app.include_router(admin_router, prefix="/v1", tags=["admin"])
+
+
+# Optional / auxiliary routers — include defensively so a single broken stub
+# never prevents the platform from booting.
+def _try_include(module_path: str, attr: str, **kwargs) -> None:
+    try:
+        module = __import__(module_path, fromlist=[attr])
+        app.include_router(getattr(module, attr), **kwargs)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Skipping router {} ({}: {})", module_path, type(e).__name__, e)
+
+
+_try_include("backend.api.routers.intervention", "router", prefix="/v1", tags=["interventions"])
+_try_include("backend.api.routers.reports", "router", tags=["reports"])
+_try_include("backend.api.routers.developer", "router", prefix="/v1", tags=["developer"])
+_try_include("backend.api.routers.admin", "router", prefix="/v1", tags=["admin"])

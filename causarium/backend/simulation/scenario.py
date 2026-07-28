@@ -83,6 +83,46 @@ class HeuristicPolicy:
         }
 
 
+def build_world(
+    run_id: str, agent_specs: List[Dict], constraint_params: Optional[Dict] = None
+) -> WorldState:
+    """Construct a fresh WorldState with agents and constraints from specs."""
+    world = WorldState(run_id=run_id)
+    if constraint_params:
+        world.constraint_params = ConstraintParams(
+            **{k: v for k, v in constraint_params.items()
+               if k in ConstraintParams.model_fields}
+        )
+    for i, spec in enumerate(agent_specs):
+        aid = f"{run_id}-agent{i}"
+        world.agents[aid] = AgentState(
+            agent_id=aid,
+            agent_type=spec.get("agent_type", "UNKNOWN"),
+            confidence=spec.get("confidence", 0.5),
+            risk_tolerance=spec.get("risk_tolerance", 0.5),
+            ethics_threshold=spec.get("ethics_threshold", 0.5),
+            influence=spec.get("influence", 0.5),
+            capital=spec.get("capital", 1.0),
+        )
+    return world
+
+
+def step_world(
+    world: WorldState,
+    policy: "HeuristicPolicy",
+    resolver: ActionResolver,
+    agent_ids: List[str],
+) -> List[Dict]:
+    """Advance the world by exactly one tick; return the resolved events."""
+    proposals = [
+        policy.choose(world.agents[aid], agent_ids, tick_rng(world.run_id, world.tick, aid))
+        for aid in agent_ids
+    ]
+    events = resolver.resolve(world, proposals)
+    world.tick += 1
+    return events
+
+
 def run_scenario(
     run_id: str,
     agent_specs: List[Dict],
@@ -98,25 +138,7 @@ def run_scenario(
     {"agent_type": "COMPETITOR_DIRECT", "risk_tolerance": 0.8, "ethics_threshold": 0.3,
      "influence": 0.6, "capital": 1.0}.
     """
-    world = WorldState(run_id=run_id)
-    if constraint_params:
-        world.constraint_params = ConstraintParams(
-            **{k: v for k, v in constraint_params.items()
-               if k in ConstraintParams.model_fields}
-        )
-
-    for i, spec in enumerate(agent_specs):
-        aid = f"{run_id}-agent{i}"
-        world.agents[aid] = AgentState(
-            agent_id=aid,
-            agent_type=spec.get("agent_type", "UNKNOWN"),
-            confidence=spec.get("confidence", 0.5),
-            risk_tolerance=spec.get("risk_tolerance", 0.5),
-            ethics_threshold=spec.get("ethics_threshold", 0.5),
-            influence=spec.get("influence", 0.5),
-            capital=spec.get("capital", 1.0),
-        )
-
+    world = build_world(run_id, agent_specs, constraint_params)
     resolver = ActionResolver()
     policy = HeuristicPolicy()
     detector = ConvergenceDetector() if detect_convergence else None
@@ -125,15 +147,8 @@ def run_scenario(
     converged = False
 
     for _ in range(n_ticks):
-        proposals = []
-        for aid in agent_ids:
-            rng = _rng(run_id, world.tick, aid)
-            proposals.append(policy.choose(world.agents[aid], agent_ids, rng))
-
-        events = resolver.resolve(world, proposals)
+        events = step_world(world, policy, resolver, agent_ids)
         event_log.extend(events)
-        world.tick += 1
-
         if detector is not None:
             detector.observe(events, n_agents=len(agent_ids))
             if detector.converged():
@@ -149,6 +164,6 @@ def run_scenario(
     )
 
 
-def _rng(run_id: str, tick: int, agent_id: str) -> Random:
+def tick_rng(run_id: str, tick: int, agent_id: str) -> Random:
     seed_src = f"{run_id}:{tick}:{agent_id}".encode("utf-8")
     return Random(int(hashlib.sha256(seed_src).hexdigest()[:12], 16))

@@ -94,6 +94,30 @@ def test_paradox_detects_known_cycle():
     assert len(paradoxes[0].cycle) == 3
 
 
+def test_singularity_detected_on_bimodal_dna_and_serializes():
+    """Runs whose 'aggression' splits into two peaks must yield a serializable
+    Singularity (regression: outcome_cluster fields hold string labels)."""
+    from backend.discovery.singularity import SingularityFinder
+
+    runs = []
+    for i in range(40):
+        high = i % 2 == 0
+        events = [{
+            "type": "ACTION_EXECUTED", "status": "SUCCESS", "tick": 1,
+            "agent_type": "CEO", "action_type": "SABOTAGE" if high else "COOPERATE",
+        }]
+        runs.append(RunResult(
+            run_id=f"r{i}", events=events,
+            reality_dna={"aggression": 0.9 if high else 0.1, "trust": 0.5},
+            terminal_outcome="CONFLICT_ESCALATION" if high else "STABLE_COOPERATION",
+        ))
+    singularities = SingularityFinder().find_singularities(runs, "sim-test")
+    assert singularities
+    # Must be dumpable (this is what the API/report layer does).
+    dumped = [s.model_dump() for s in singularities]
+    assert "label_is" in dumped[0]["outcome_cluster_a"]
+
+
 def test_empty_runs_are_safe():
     result = DiscoveryWorker().process_simulation([], simulation_id="sim-empty")
     assert result["run_count"] == 0

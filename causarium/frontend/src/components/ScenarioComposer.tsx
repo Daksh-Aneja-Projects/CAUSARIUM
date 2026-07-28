@@ -1,20 +1,28 @@
 import React, { useState } from 'react';
-import { causariumApi } from '../services/api';
+import { causariumApi, streamUrl } from '../services/api';
 
 export const ScenarioComposer: React.FC<{ onLaunch: (id: string, wsUrl: string) => void }> = ({ onLaunch }) => {
   const [context, setContext] = useState('We are a $2B US SaaS company planning to enter the German enterprise market...');
-  const [runCount, setRunCount] = useState(200);
+  const [runCount, setRunCount] = useState(20);
+  const [entropy, setEntropy] = useState(30);
   const [isLaunching, setIsLaunching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleLaunch = async () => {
     setIsLaunching(true);
+    setError(null);
     try {
       const res = await causariumApi.createSimulation({
-        scenario: { title: 'New Scenario', context },
-        run_config: { run_count: runCount, tick_depth: 30 }
+        scenario_name: 'Reality Collision',
+        description: context,
+        run_count: runCount,
+        tick_depth: 25,
+        mode: 'heuristic',
+        constraint_params: { entropy_rate: entropy / 100 },
       });
-      onLaunch(res.simulation_id, res.websocket_url);
-    } catch (e) {
+      onLaunch(res.simulation_id, streamUrl(res.simulation_id));
+    } catch (e: any) {
+      setError(e?.message ?? 'Failed to launch simulation');
       console.error(e);
     } finally {
       setIsLaunching(false);
@@ -39,8 +47,8 @@ export const ScenarioComposer: React.FC<{ onLaunch: (id: string, wsUrl: string) 
         <div className="mt-6 flex space-x-6">
           <div className="flex-1">
             <label className="block text-gray-400 text-xs mb-1">Parallel Runs</label>
-            <input 
-              type="range" min="10" max="1000" step="10" 
+            <input
+              type="range" min="4" max="120" step="2"
               value={runCount} onChange={e => setRunCount(parseInt(e.target.value))}
               className="w-full accent-[#6C63FF]"
             />
@@ -48,8 +56,12 @@ export const ScenarioComposer: React.FC<{ onLaunch: (id: string, wsUrl: string) 
           </div>
           <div className="flex-1">
             <label className="block text-gray-400 text-xs mb-1">Entropy Rate</label>
-            <input type="range" min="0" max="100" defaultValue="30" className="w-full accent-[#6C63FF]" />
-            <div className="text-right text-sm text-[#00D9FF]">0.3</div>
+            <input
+              type="range" min="0" max="100"
+              value={entropy} onChange={e => setEntropy(parseInt(e.target.value))}
+              className="w-full accent-[#6C63FF]"
+            />
+            <div className="text-right text-sm text-[#00D9FF]">{(entropy / 100).toFixed(2)}</div>
           </div>
         </div>
       </div>
@@ -65,8 +77,14 @@ export const ScenarioComposer: React.FC<{ onLaunch: (id: string, wsUrl: string) 
         </div>
       </div>
 
+      {error && (
+        <div className="text-[#FF3366] text-sm font-mono bg-[#FF3366]/10 border border-[#FF3366]/30 rounded-lg p-3">
+          {error}
+        </div>
+      )}
+
       <div className="flex justify-end pt-4">
-        <button 
+        <button
           onClick={handleLaunch}
           disabled={isLaunching}
           className="bg-[#6C63FF] hover:bg-[#5a52d6] text-white px-8 py-3 rounded-lg font-medium transition-all shadow-[0_0_15px_rgba(108,99,255,0.4)] hover:shadow-[0_0_25px_rgba(108,99,255,0.6)] disabled:opacity-50 flex items-center"
