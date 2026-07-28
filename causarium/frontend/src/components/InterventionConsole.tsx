@@ -38,7 +38,7 @@ export const InterventionConsole: React.FC<{ simulationId: string; onClose: () =
 
         <div className="p-8 border-b border-[#222]">
           <h2 className="text-2xl font-light text-white mb-2">Intervention Console</h2>
-          <p className="text-gray-400 font-mono text-sm">Override an actor and re-run the futures — measure causal divergence.</p>
+          <p className="text-gray-400 font-mono text-sm">Override an actor and re-run the futures to measure causal divergence.</p>
         </div>
 
         <div className="p-8 space-y-6">

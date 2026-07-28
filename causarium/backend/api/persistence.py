@@ -12,7 +12,7 @@ from ..graph.neo4j_client import neo4j_client
 from ..graph.qdrant_client import dna_index
 
 
-async def persist_simulation(session) -> Dict[str, Any]:
+def persist_simulation(session) -> Dict[str, Any]:
     result = {"vectors_indexed": 0, "neo4j": False}
 
     # 1. Index each run's reality DNA for similarity search.

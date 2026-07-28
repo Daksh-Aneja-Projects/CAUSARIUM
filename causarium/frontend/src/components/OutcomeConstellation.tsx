@@ -286,7 +286,7 @@ export const OutcomeConstellation: React.FC<OutcomeConstellationProps> = ({
               <h2 className="text-2xl font-light text-white mb-2">No dominant attractors</h2>
               <p className="text-sm text-gray-500 max-w-md">
                 The discovered futures did not converge into stable basins. The reality space
-                remains diffuse — no gravity-wells formed from these {term}s.
+                remains diffuse. No gravity wells formed from these {term}s.
               </p>
             </div>
           ) : (

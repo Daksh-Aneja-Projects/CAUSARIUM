@@ -338,8 +338,11 @@ class SimulationEngine:
     async def _finish_discovery(self, session: SimulationSession) -> None:
         session.status = "DISCOVERY"
         await session.emit({"type": "status", "status": "DISCOVERY", **session.public_state()})
-        session.discovery = self.discovery_worker.process_simulation(
-            session.runs, simulation_id=session.simulation_id
+        # Discovery is CPU-bound and synchronous; run it off the event loop so the
+        # server (and the live WebSocket) stays responsive while it computes.
+        session.discovery = await asyncio.to_thread(
+            self.discovery_worker.process_simulation,
+            session.runs, session.simulation_id,
         )
         session.discovery["reality_dna_distribution"] = self._mean_dna(session.runs)
         session.discovery["outcome_distribution"] = session._outcome_distribution()
@@ -357,10 +360,12 @@ class SimulationEngine:
         })
 
     async def _persist(self, session: SimulationSession) -> None:
-        """Overridden/extended in the persistence phase; no-op if unavailable."""
+        """Best-effort persistence. The Neo4j/Qdrant clients are BLOCKING, so run
+        them in a worker thread to avoid stalling the event loop; bounded by a
+        timeout so a slow/unreachable database never hangs the server."""
         try:
             from .persistence import persist_simulation
-            await persist_simulation(session)
+            await asyncio.wait_for(asyncio.to_thread(persist_simulation, session), timeout=8.0)
         except Exception:  # noqa: BLE001 - persistence is strictly best-effort
             pass
 
