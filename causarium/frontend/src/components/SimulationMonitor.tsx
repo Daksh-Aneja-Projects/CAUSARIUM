@@ -1,8 +1,10 @@
 import React, { useEffect } from 'react';
 import { useSimulationStream } from '../hooks/useSimulationStream';
+import { causariumApi } from '../services/api';
 
 export const SimulationMonitor: React.FC<{ simulationId: string; wsUrl: string; onComplete: () => void }> = ({ simulationId, wsUrl, onComplete }) => {
-  const { events, isConnected, progress, status, currentRun, outcomes, complete } = useSimulationStream(wsUrl);
+  const { events, isConnected, progress, status, currentRun, outcomes, complete, paused } = useSimulationStream(wsUrl);
+  const running = !complete && status !== 'FAILED' && status !== 'DISCOVERY';
 
   useEffect(() => {
     if (complete) {
@@ -38,6 +40,25 @@ export const SimulationMonitor: React.FC<{ simulationId: string; wsUrl: string; 
             </div>
           </div>
         </div>
+
+        {/* Live mid-run intervention controls */}
+        {running && (
+          <div className="flex flex-wrap items-center gap-3 mb-5 p-3 rounded-lg bg-[#0A0A0F] border border-[#222]">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-gray-500">Live Controls</span>
+            {!paused ? (
+              <button onClick={() => causariumApi.pause(simulationId)}
+                className="px-3 py-1 rounded text-xs font-mono border border-[#FFB800] text-[#FFB800] hover:bg-[#FFB800]/10 transition">⏸ Pause</button>
+            ) : (
+              <button onClick={() => causariumApi.resume(simulationId)}
+                className="px-3 py-1 rounded text-xs font-mono border border-[#00E5A0] text-[#00E5A0] hover:bg-[#00E5A0]/10 transition">▶ Resume</button>
+            )}
+            <button onClick={() => causariumApi.inject(simulationId, { kind: 'SHOCK', shock: 'INJECTED_CRISIS' })}
+              className="px-3 py-1 rounded text-xs font-mono border border-[#FF3366] text-[#FF3366] hover:bg-[#FF3366]/10 transition">💉 Inject Shock</button>
+            <button onClick={() => causariumApi.inject(simulationId, { kind: 'CONSTRAINT', param: 'cooperation_incentive', value: 1.8 })}
+              className="px-3 py-1 rounded text-xs font-mono border border-[#6C63FF] text-[#6C63FF] hover:bg-[#6C63FF]/10 transition">🤝 Boost Cooperation</button>
+            {paused && <span className="text-[10px] font-mono text-[#FFB800] animate-pulse">PAUSED — inject, then resume</span>}
+          </div>
+        )}
 
         {/* Live outcome tally */}
         {Object.keys(outcomes).length > 0 && (

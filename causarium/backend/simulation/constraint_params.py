@@ -1,10 +1,14 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 class ConstraintParams(BaseModel):
     """
     Reality Physics is implemented as a set of numerical constraint parameters
     that modify the simulation substrate.
     """
+    # Enforce field bounds on assignment too, so live injections can't push a
+    # parameter out of its valid range (the injector catches the rejection).
+    model_config = ConfigDict(validate_assignment=True)
+
     entropy_rate: float = Field(
         0.3, ge=0.0, le=1.0, 
         description="Rate at which organized systems tend toward disorder"

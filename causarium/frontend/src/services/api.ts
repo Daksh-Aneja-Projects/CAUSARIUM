@@ -59,6 +59,16 @@ export const causariumApi = {
     return http(`/simulations/${simulationId}/similar`);
   },
 
+  async pause(simulationId: string): Promise<any> {
+    return http(`/simulations/${simulationId}/pause`, { method: 'POST' });
+  },
+  async resume(simulationId: string): Promise<any> {
+    return http(`/simulations/${simulationId}/resume`, { method: 'POST' });
+  },
+  async inject(simulationId: string, payload: Record<string, any>): Promise<any> {
+    return http(`/simulations/${simulationId}/inject`, { method: 'POST', body: JSON.stringify(payload) });
+  },
+
   async triggerIntervention(
     simulationId: string,
     payload: { agent_index: number; attribute: string; value: number; tick?: number }

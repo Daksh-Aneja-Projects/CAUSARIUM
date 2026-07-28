@@ -15,6 +15,7 @@ interface StreamState {
   currentRun: number;
   outcomes: Record<string, number>;
   complete: boolean;
+  paused: boolean;
 }
 
 const HUMAN: Record<string, (e: any) => string> = {
@@ -23,6 +24,9 @@ const HUMAN: Record<string, (e: any) => string> = {
   run_start: (e) => `Run ${e.run} started (${e.agents} agents)`,
   tick: (e) => `Run ${e.run} · tick ${e.tick} — ${e.events} events${e.black_swan ? ' ⚡ BLACK SWAN' : ''}`,
   agent_decision: (e) => `${e.persona} (${e.agent_type}): ${e.action_type} → ${e.target} — ${e.rationale}`,
+  paused: (e) => `⏸ Paused at tick ${e.tick}`,
+  resumed: (e) => `▶ Resumed at tick ${e.tick}`,
+  injected: (e) => `💉 Injected ${e.kind}: ${e.detail} @tick ${e.tick}`,
   run_complete: (e) => `Run ${e.run} complete → ${e.outcome}`,
   complete: () => 'All runs + discovery complete',
   error: (e) => `Error: ${e.message}`,
@@ -31,7 +35,7 @@ const HUMAN: Record<string, (e: any) => string> = {
 export function useSimulationStream(websocketUrl: string | null) {
   const [state, setState] = useState<StreamState>({
     events: [], isConnected: false, progress: 0, status: 'CONNECTING',
-    currentRun: 0, outcomes: {}, complete: false,
+    currentRun: 0, outcomes: {}, complete: false, paused: false,
   });
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -62,6 +66,8 @@ export function useSimulationStream(websocketUrl: string | null) {
         if (data.type === 'run_complete' && data.outcome) {
           next.outcomes = { ...s.outcomes, [data.outcome]: (s.outcomes[data.outcome] || 0) + 1 };
         }
+        if (data.type === 'paused') next.paused = true;
+        if (data.type === 'resumed') next.paused = false;
         if (data.type === 'complete') { next.progress = 100; next.status = 'COMPLETE'; next.complete = true; }
         if (data.type === 'error') { next.status = 'FAILED'; }
         return next;

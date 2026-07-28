@@ -53,6 +53,7 @@ class LLMRunner:
         simulation_id: str = "sim-local",
         organization: str = "Theatre",
         on_event: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None,
+        before_tick: Optional[Callable[[WorldState, int], Awaitable[None]]] = None,
     ) -> RunResult:
         world = WorldState(run_id=run_id)
         if constraint_params:
@@ -92,6 +93,10 @@ class LLMRunner:
         event_log: List[Dict[str, Any]] = []
 
         for _ in range(n_ticks):
+            # Mid-run gate: pause / resume / live injection before this tick.
+            if before_tick:
+                await before_tick(world, world.tick)
+
             snapshot = world.get_snapshot()
 
             # Perceive (append world state to each agent's memory).

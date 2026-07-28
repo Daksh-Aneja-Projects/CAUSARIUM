@@ -130,6 +130,44 @@ async def intervene(simulation_id: str, payload: InterventionRequest) -> Dict[st
     )
 
 
+@router.post("/{simulation_id}/pause")
+async def pause_simulation(simulation_id: str) -> Dict[str, Any]:
+    session = engine.get(simulation_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    session.pause()
+    return {"simulation_id": simulation_id, "paused": True}
+
+
+@router.post("/{simulation_id}/resume")
+async def resume_simulation(simulation_id: str) -> Dict[str, Any]:
+    session = engine.get(simulation_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    session.resume()
+    return {"simulation_id": simulation_id, "paused": False}
+
+
+class InjectionRequest(BaseModel):
+    kind: str = Field("SHOCK", description="SHOCK | AGENT_ATTRIBUTE | CONSTRAINT")
+    shock: Optional[str] = "INJECTED_SHOCK"
+    agent_index: Optional[int] = 0
+    attribute: Optional[str] = "risk_tolerance"
+    param: Optional[str] = "entropy_rate"
+    value: Optional[float] = 0.5
+
+
+@router.post("/{simulation_id}/inject")
+async def inject(simulation_id: str, payload: InjectionRequest) -> Dict[str, Any]:
+    """Queue a live world-state injection, applied at the next tick boundary."""
+    session = engine.get(simulation_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    session.queue_injection(payload.model_dump())
+    return {"simulation_id": simulation_id, "queued": payload.model_dump(),
+            "note": "Applies at the next tick; pause first for precise timing."}
+
+
 @router.post("/{simulation_id}/report")
 async def generate_report(simulation_id: str) -> Response:
     session = engine.get(simulation_id)

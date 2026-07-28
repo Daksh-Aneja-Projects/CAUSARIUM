@@ -40,6 +40,29 @@ class SimulationSession:
         self.discovery: Optional[Dict[str, Any]] = None
         self.error: Optional[str] = None
         self._subscribers: List[asyncio.Queue] = []
+        # Live mid-run controls.
+        self.paused = asyncio.Event()
+        self.paused.set()  # set == running; cleared == paused
+        self._injections: List[Dict[str, Any]] = []
+        self.branch_points: List[Dict[str, Any]] = []
+
+    # --- live intervention controls ------------------------------------ #
+    def pause(self) -> None:
+        self.paused.clear()
+
+    def resume(self) -> None:
+        self.paused.set()
+
+    @property
+    def is_paused(self) -> bool:
+        return not self.paused.is_set()
+
+    def queue_injection(self, injection: Dict[str, Any]) -> None:
+        self._injections.append(injection)
+
+    def drain_injections(self) -> List[Dict[str, Any]]:
+        out, self._injections = self._injections, []
+        return out
 
     # --- pub/sub for WebSocket streaming ------------------------------- #
     def subscribe(self) -> asyncio.Queue:
@@ -158,6 +181,7 @@ class SimulationEngine:
             await session.emit({"type": "run_start", "run": run_idx, "agents": len(agent_ids)})
 
             for _ in range(tick_depth):
+                await self._gate(session, world, run_idx)
                 events = step_world(world, policy, resolver, agent_ids)
                 event_log.extend(events)
                 session.current_tick = world.tick
@@ -229,6 +253,9 @@ class SimulationEngine:
                     ev["progress"] = round(session.progress, 4)
                 await session.emit(ev)
 
+            async def before_tick(world, _tick, _idx=run_idx) -> None:
+                await self._gate(session, world, _idx)
+
             result = await runner.run(
                 run_id=f"{session.simulation_id}-run{run_idx}",
                 agent_specs=population,
@@ -237,6 +264,7 @@ class SimulationEngine:
                 simulation_id=session.simulation_id,
                 organization=cfg.get("title", "Theatre"),
                 on_event=on_event,
+                before_tick=before_tick,
             )
             session.runs.append(result)
             await session.emit({
@@ -244,6 +272,55 @@ class SimulationEngine:
                 "outcome": result.terminal_outcome, "converged": False,
                 "dna": result.reality_dna,
             })
+
+    # ------------------------------------------------------------------ #
+    # Live mid-run intervention
+    # ------------------------------------------------------------------ #
+    async def _gate(self, session: SimulationSession, world, run_idx: int) -> None:
+        """Called at each tick boundary: block while paused, then apply any
+        queued injections to the LIVE world before the tick runs."""
+        if session.is_paused:
+            await session.emit({"type": "paused", "tick": world.tick, "run": run_idx})
+            await session.paused.wait()
+            await session.emit({"type": "resumed", "tick": world.tick, "run": run_idx})
+
+        for inj in session.drain_injections():
+            applied = self._apply_injection(world, inj)
+            session.branch_points.append({"run": run_idx, "tick": world.tick, **applied})
+            await session.emit({"type": "injected", "run": run_idx, "tick": world.tick, **applied})
+
+    @staticmethod
+    def _apply_injection(world, inj: Dict[str, Any]) -> Dict[str, Any]:
+        """Mutate the live world state — a genuine counterfactual branch point."""
+        kind = inj.get("kind", "SHOCK")
+
+        if kind == "AGENT_ATTRIBUTE":
+            idx = int(inj.get("agent_index", 0))
+            attr = inj.get("attribute", "risk_tolerance")
+            value = float(inj.get("value", 0.5))
+            ids = list(world.agents)
+            if 0 <= idx < len(ids) and hasattr(world.agents[ids[idx]], attr):
+                setattr(world.agents[ids[idx]], attr, value)
+                return {"kind": kind, "detail": f"{world.agents[ids[idx]].agent_type}.{attr} := {value}"}
+            return {"kind": kind, "detail": "no-op (bad target)"}
+
+        if kind == "CONSTRAINT":
+            param = inj.get("param", "entropy_rate")
+            value = float(inj.get("value", 0.5))
+            if hasattr(world.constraint_params, param):
+                try:
+                    setattr(world.constraint_params, param, value)
+                    return {"kind": kind, "detail": f"{param} := {value}"}
+                except Exception:  # noqa: BLE001 - respect pydantic bounds
+                    return {"kind": kind, "detail": f"{param} rejected (out of bounds)"}
+            return {"kind": kind, "detail": "unknown constraint"}
+
+        # Default: SHOCK — inject an exogenous crisis into the live world.
+        shock = inj.get("shock", "INJECTED_SHOCK")
+        for agent in world.agents.values():
+            agent.capital = round(agent.capital - 0.5, 4)
+        world.global_events.append({"type": "BLACK_SWAN", "action_type": shock, "tick": world.tick})
+        return {"kind": "SHOCK", "detail": shock}
 
     async def _finish_discovery(self, session: SimulationSession) -> None:
         session.status = "DISCOVERY"
