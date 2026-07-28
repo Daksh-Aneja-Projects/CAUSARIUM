@@ -1,22 +1,31 @@
-from typing import List, Dict, Any
-from uuid import UUID
-import networkx as nx
+"""
+Discovery pipeline orchestration.
 
-from models.simulation import Simulation, SimulationRun
-from models.event import Event
-from models.causal import CausalChain
+Takes the RunResults from a completed simulation and runs the full causal +
+discovery stack:
 
-from causal.extractor import Extractor
-from causal.graph_constructor import GraphConstructor
-from causal.chain_builder import ChainBuilder
-from causal.aggregator import Aggregator
+    events  ->  per-run causal graphs  ->  hidden chains (aggregated across runs)
+            ->  do-calculus structural graph
+            ->  attractors / repellers / choke points / butterflies
+                / singularities / paradoxes
 
-from discovery.attractor import AttractorDetector
-from discovery.repeller import RepellerDetector
-from discovery.choke_point import ChokePointDetector
-from discovery.butterfly import ButterflyScanner
-from discovery.singularity import SingularityFinder
-from discovery.paradox import ParadoxEngine
+Returns a single JSON-serializable results dict for the API and report layers.
+"""
+
+from typing import Any, Dict, List, Optional
+
+from ..models.run_result import RunResult
+from ..causal.extractor import Extractor
+from ..causal.graph_constructor import GraphConstructor
+from ..causal.chain_builder import ChainBuilder
+from ..causal.aggregator import Aggregator
+from ..discovery.attractor import AttractorDetector
+from ..discovery.repeller import RepellerDetector
+from ..discovery.choke_point import ChokePointDetector
+from ..discovery.butterfly import ButterflyScanner
+from ..discovery.singularity import SingularityFinder
+from ..discovery.paradox import ParadoxEngine
+
 
 class DiscoveryWorker:
     def __init__(self):
@@ -24,7 +33,6 @@ class DiscoveryWorker:
         self.graph_constructor = GraphConstructor()
         self.chain_builder = ChainBuilder()
         self.aggregator = Aggregator()
-        
         self.attractor_detector = AttractorDetector()
         self.repeller_detector = RepellerDetector()
         self.choke_point_detector = ChokePointDetector()
@@ -32,59 +40,73 @@ class DiscoveryWorker:
         self.singularity_finder = SingularityFinder()
         self.paradox_engine = ParadoxEngine()
 
-    def process_simulation(self, simulation: Simulation, runs: List[SimulationRun], events_by_run: Dict[UUID, List[Event]]) -> Dict[str, Any]:
-        """
-        Processes completed simulation runs to extract causal chains and run discovery engines.
-        """
-        run_graphs = []
-        run_chains_list = []
-        all_events = []
-        
-        # 1. Causal Extraction Pipeline
+    def process_simulation(
+        self,
+        runs: List[RunResult],
+        simulation_id: str = "sim-local",
+        target_outcome: Optional[str] = None,
+        min_independent_runs: int = 3,
+    ) -> Dict[str, Any]:
+        graphs_by_run = {}
+        run_chains_list: List[list] = []
+        chains_by_run: Dict[str, List[str]] = {}
+
+        # 1. Per-run causal extraction.
         for run in runs:
-            run_events = events_by_run.get(run.run_id, [])
-            all_events.extend(run_events)
-            
-            filtered_events = self.extractor.extract_events(run_events)
-            
-            graph = self.graph_constructor.build_graph(filtered_events)
-            run_graphs.append(graph)
-            
-            chains = self.chain_builder.extract_chains(graph, run.run_id)
+            filtered = self.extractor.extract_events(run.events)
+            graph = self.graph_constructor.build_graph(filtered)
+            graphs_by_run[run.run_id] = graph
+
+            chains = self.chain_builder.extract_chains(
+                graph, run.run_id, simulation_id, run.terminal_outcome or "UNKNOWN"
+            )
             run_chains_list.append(chains)
-            
-        # Do-calculus filter
-        structural_graph = self.graph_constructor.do_calculus_filter(run_graphs, min_independent_runs=3)
-        
-        # Aggregate chains
+            chains_by_run[run.run_id] = [
+                "->".join(f"{e.agent_type}:{e.action}" for e in c.events) for c in chains
+            ]
+
+        # 2. Do-calculus structural graph + aggregated hidden chains.
+        structural_graph = self.graph_constructor.do_calculus_filter(
+            list(graphs_by_run.values()), min_independent_runs=min_independent_runs
+        )
         aggregated_chains = self.aggregator.aggregate_chains(run_chains_list, len(runs))
-        
-        # 2. Discovery Engines
-        results = {
-            "simulation_id": simulation.simulation_id,
+
+        # 3. Discovery engines.
+        attractors = self.attractor_detector.detect_attractors(
+            runs, simulation_id, chains_by_run
+        )
+        target = target_outcome or self._least_common_outcome(runs)
+        repeller = (
+            self.repeller_detector.detect_repellers(target, runs, simulation_id)
+            if target
+            else None
+        )
+        choke_points = self.choke_point_detector.detect_choke_points(graphs_by_run, simulation_id)
+        butterflies = self.butterfly_scanner.scan_butterflies(graphs_by_run, simulation_id)
+        singularities = self.singularity_finder.find_singularities(runs, simulation_id)
+        paradoxes = self.paradox_engine.detect_paradoxes(structural_graph, simulation_id)
+
+        return {
+            "simulation_id": simulation_id,
+            "run_count": len(runs),
             "hidden_causal_chains": [c.model_dump() for c in aggregated_chains],
-            "attractors": [],
-            "repellers": [],
-            "choke_points": [],
-            "butterfly_events": [],
-            "singularities": [],
-            "causal_paradoxes": []
+            "structural_edges": [
+                {"source": u, "target": v, **d}
+                for u, v, d in structural_graph.edges(data=True)
+            ],
+            "attractors": [a.model_dump() for a in attractors],
+            "repellers": [repeller.model_dump()] if repeller else [],
+            "choke_points": [c.model_dump() for c in choke_points],
+            "butterfly_events": [b.model_dump() for b in butterflies],
+            "singularities": [s.model_dump() for s in singularities],
+            "causal_paradoxes": [p.model_dump() for p in paradoxes],
         }
-        
-        if simulation.discovery_config.enable_attractors:
-            results["attractors"] = [a.model_dump() for a in self.attractor_detector.detect_attractors(runs, simulation.simulation_id)]
-            
-        results["repellers"] = self.repeller_detector.detect_repellers(target_outcome="TARGET", runs=runs)
-        
-        if simulation.discovery_config.enable_choke_points:
-            results["choke_points"] = self.choke_point_detector.detect_choke_points(runs)
-            
-        if simulation.discovery_config.enable_butterfly_scan:
-            results["butterfly_events"] = self.butterfly_scanner.scan_butterflies(all_events)
-            
-        if simulation.discovery_config.enable_singularity_finder:
-            results["singularities"] = self.singularity_finder.find_singularities(runs)
-            
-        results["causal_paradoxes"] = self.paradox_engine.detect_paradoxes(structural_graph)
-            
-        return results
+
+    @staticmethod
+    def _least_common_outcome(runs: List[RunResult]) -> Optional[str]:
+        from collections import Counter
+
+        counts = Counter(r.terminal_outcome for r in runs if r.terminal_outcome)
+        if not counts:
+            return None
+        return min(counts, key=counts.get)

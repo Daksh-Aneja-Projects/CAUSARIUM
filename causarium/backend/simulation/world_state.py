@@ -9,6 +9,7 @@ class AgentState(BaseModel):
     memory_stream: List[Any] = Field(default_factory=list)
     confidence: float = 0.5
     risk_tolerance: float = 0.5
+    ethics_threshold: float = 0.5
     trust_network: Dict[str, float] = Field(default_factory=dict)
     capital: float = 0.0
     influence: float = 0.0
