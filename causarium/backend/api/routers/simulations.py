@@ -89,6 +89,28 @@ async def get_graph(simulation_id: str) -> Dict[str, Any]:
     return engine.graph_data(session)
 
 
+@router.get("/{simulation_id}/similar")
+async def similar_timelines(simulation_id: str, limit: int = 8) -> Dict[str, Any]:
+    """Runs (across all simulations) whose reality-DNA is closest to this run set."""
+    session = engine.get(simulation_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    if session.discovery is None:
+        raise HTTPException(status_code=202, detail="Not ready")
+    from ...graph.qdrant_client import dna_index
+    from ...graph.neo4j_client import neo4j_client
+
+    centroid = session.discovery.get("reality_dna_distribution", {})
+    neighbors = dna_index.search_similar(centroid, limit=limit)
+    return {
+        "simulation_id": simulation_id,
+        "vector_backend": dna_index.backend,
+        "indexed_runs": dna_index.count(),
+        "neo4j": neo4j_client.stats(),
+        "neighbors": neighbors,
+    }
+
+
 class InterventionRequest(BaseModel):
     agent_index: int = Field(0, ge=0)
     attribute: str = Field("risk_tolerance")

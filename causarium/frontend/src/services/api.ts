@@ -55,6 +55,10 @@ export const causariumApi = {
     return http(`/simulations/${simulationId}/graph`);
   },
 
+  async getSimilar(simulationId: string): Promise<SimilarData> {
+    return http(`/simulations/${simulationId}/similar`);
+  },
+
   async triggerIntervention(
     simulationId: string,
     payload: { agent_index: number; attribute: string; value: number; tick?: number }
@@ -83,6 +87,19 @@ export interface GraphData {
   nodes: GraphNode[];
   edges: GraphEdge[];
   attractors: { label: string; convergence_rate: number }[];
+}
+export interface SimilarNeighbor {
+  run_id: string;
+  simulation_id: string;
+  outcome: string;
+  similarity: number;
+}
+export interface SimilarData {
+  simulation_id: string;
+  vector_backend: string;
+  indexed_runs: number;
+  neo4j: { available: boolean; nodes?: number; relationships?: number };
+  neighbors: SimilarNeighbor[];
 }
 export interface CounterfactualResult {
   intervention: { agent_index: number; attribute: string; value: number };

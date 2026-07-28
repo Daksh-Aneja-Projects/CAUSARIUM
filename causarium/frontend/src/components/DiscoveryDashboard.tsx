@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { causariumApi } from '../services/api';
+import { causariumApi, SimilarData } from '../services/api';
 import { DiscoveryData } from '../types';
 
 export const DiscoveryDashboard: React.FC<{ simulationId: string, onExploreGraph: () => void, onIntervene: () => void, onReport: () => void }> = ({ simulationId, onExploreGraph, onIntervene, onReport }) => {
   const [data, setData] = useState<DiscoveryData | null>(null);
+  const [similar, setSimilar] = useState<SimilarData | null>(null);
 
   useEffect(() => {
     causariumApi.getDiscoveryData(simulationId).then(setData);
+    causariumApi.getSimilar(simulationId).then(setSimilar).catch(() => {});
   }, [simulationId]);
 
   if (!data) return <div className="p-8 text-white font-mono animate-pulse">Loading Discovery Results...</div>;
@@ -68,6 +70,28 @@ export const DiscoveryDashboard: React.FC<{ simulationId: string, onExploreGraph
           </div>
         </DashboardCard>
       </div>
+
+      {similar && (
+        <div className="mt-6">
+          <DashboardCard title="Similar Timelines (Reality DNA)" color="#00E5A0">
+            <div className="flex items-center justify-between text-[10px] font-mono text-gray-500 mb-3">
+              <span>{similar.indexed_runs} runs indexed · vector store: {similar.vector_backend}</span>
+              <span>Neo4j: {similar.neo4j.available ? `${similar.neo4j.nodes} nodes` : 'not connected'}</span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {similar.neighbors.slice(0, 8).map((n, i) => (
+                <div key={i} className="bg-[#0A0A0F] p-3 rounded border border-[#222]">
+                  <div className="flex justify-between items-baseline">
+                    <span className="text-[#00E5A0] font-mono text-sm">{(n.similarity * 100).toFixed(1)}%</span>
+                    <span className="text-[9px] text-gray-600 font-mono">{n.simulation_id.slice(0, 10)}</span>
+                  </div>
+                  <div className="text-xs text-gray-400 mt-1">{n.outcome}</div>
+                </div>
+              ))}
+            </div>
+          </DashboardCard>
+        </div>
+      )}
     </div>
   );
 };
