@@ -152,6 +152,9 @@ export interface SimilarData {
   neo4j: { available: boolean; nodes?: number; relationships?: number };
   neighbors: SimilarNeighbor[];
 }
+export interface RosterActor {
+  index: number; name: string; role: string; contender: boolean;
+}
 export interface CounterfactualResult {
   intervention: { agent_index: number; attribute: string; value: number };
   baseline_outcomes: Record<string, number>;

@@ -55,7 +55,9 @@ user's question about the future, design a simulation that could answer it.
 
 Identify:
 1. The real CONTENDERS - the concrete possible answers/winners/outcomes for THIS question \
-(e.g. the actual parties, teams, companies, or discrete outcomes). 2 to 5 of them.
+(e.g. the actual parties, teams, companies, or discrete outcomes). 2 to 5 of them. \
+List them ORDERED from most to least likely given what is known today, and make the stronger \
+contenders' influence and capital higher so the frontrunner leads.
 2. The key ACTORS and FORCES that decide it (5 to 8) - include the contenders themselves as \
 agents plus the forces acting on them (voters, funding, media, regulators, momentum, etc.).
 Give each agent plausible attributes in [0,1] (capital in [0,4]): risk_tolerance, \
@@ -142,8 +144,16 @@ def _normalize(raw: Dict[str, Any], prompt: str) -> Dict[str, Any]:
         a = _to_agent(c, contender=True)
         if a:
             a["contender"] = True
+            # The model usually returns contenders as bare names with no attributes,
+            # which would leave every future identical and the "winner" pure RNG. When
+            # influence is unspecified, give a rank-decay prior from list order (asked to
+            # be most->least likely) so the frontrunner actually leads.
+            # ponytail: list-order likelihood prior; replace with model-scored odds if fidelity matters.
+            if not (isinstance(c, dict) and c.get("influence") is not None):
+                a["_needs_prior"] = True
             by_name[a["agent_type"]] = a
             contenders.append(a["agent_type"])
+    _apply_rank_prior([by_name[n] for n in contenders])
     for x in (actor_lists or []):
         a = _to_agent(x, contender=False)
         if a and a["agent_type"] not in by_name:
@@ -167,18 +177,39 @@ def _normalize(raw: Dict[str, Any], prompt: str) -> Dict[str, Any]:
         "cooperation_incentive": _clamp(cp.get("cooperation_incentive", 1.0), 0.5, 2.0),
     }
 
+    context = str(raw.get("context") or raw.get("summary") or "").strip()
+    if not context:
+        lead = contenders[0] if contenders else "the field"
+        context = (f"Simulating {len(agents)} actors across parallel timelines to weigh "
+                   f"{', '.join(contenders[:4]) or 'the outcomes'}. {lead} enters as the frontrunner.")
+
     return {
         "title": str(raw.get("title") or prompt)[:80],
         "domain": str(raw.get("domain", "")),
         "question": str(raw.get("question") or prompt),
         "prompt": prompt,
         "lens_id": lens_id,
-        "context": str(raw.get("context", "")),
+        "context": context,
         "contenders": contenders,
         "constraint_params": constraint_params,
         "population": agents,
         "synthesized": True,
     }
+
+
+def _apply_rank_prior(agents: List[Dict[str, Any]]) -> None:
+    """Spread influence/capital across contenders that arrived without attributes, by
+    their listed order (frontrunner first). Leaves model-scored contenders untouched."""
+    flagged = [a for a in agents if a.pop("_needs_prior", False)]
+    n = len(flagged)
+    if n < 2:
+        return
+    denom = n - 1
+    for rank, a in enumerate(flagged):
+        f = rank / denom  # 0 for the frontrunner .. 1 for the longshot
+        a["influence"] = round(0.75 - 0.38 * f, 3)
+        a["capital"] = round(2.7 - 1.5 * f, 3)
+        a["risk_tolerance"] = round(0.6 - 0.12 * f, 3)
 
 
 def _fallback(prompt: str) -> Dict[str, Any]:

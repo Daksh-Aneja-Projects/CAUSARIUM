@@ -472,6 +472,11 @@ class SimulationEngine:
             )
             for i in range(n)
         ])
+        # Relabel by the winning contender, same as the baseline runs, so the two
+        # distributions share one vocabulary and divergence measures a real who-wins shift.
+        contenders = cfg.get("contenders") or []
+        for r in cf_runs:
+            self._tag_winner(r, contenders)
 
         base_outcomes = self._outcome_dist(session.runs[:n] or session.runs)
         cf_outcomes = self._outcome_dist(cf_runs)

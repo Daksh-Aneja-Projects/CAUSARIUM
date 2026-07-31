@@ -163,7 +163,7 @@ export const Studio: React.FC<{ onComplete: (id: string, lens: Lens | null) => v
         {/* RIGHT - live field */}
         <div className="relative rounded-2xl overflow-hidden border border-white/5 bg-[#0A0A0F] min-h-0">
           {simId ? (
-            <RealityCollider events={stream.events} status={stream.status} progress={stream.progress} outcomes={stream.outcomes} running={!stream.complete} paused={stream.paused} lens={lens} />
+            <RealityCollider events={stream.events} status={stream.status} progress={stream.progress} outcomes={stream.outcomes} running={!stream.complete} paused={stream.paused} lens={lens} contenders={contenders} />
           ) : (
             <>
               <AmbientField accent={accent} energetic={synthesizing} />

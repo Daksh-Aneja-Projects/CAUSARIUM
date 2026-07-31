@@ -1,18 +1,21 @@
-import React, { useState } from 'react';
-import { causariumApi, CounterfactualResult } from '../services/api';
-
-const AGENTS = [
-  'EXECUTIVE_CEO', 'COMPETITOR_DIRECT', 'REGULATOR_DOMESTIC',
-  'INVESTOR_ACTIVIST', 'EMPLOYEE_DISGRUNTLED', 'MEDIA_SOCIAL',
-];
+import React, { useEffect, useState } from 'react';
+import { causariumApi, CounterfactualResult, RosterActor } from '../services/api';
 
 export const InterventionConsole: React.FC<{ simulationId: string; onClose: () => void }> = ({ simulationId, onClose }) => {
+  const [roster, setRoster] = useState<RosterActor[]>([]);
   const [agentIndex, setAgentIndex] = useState(0);
   const [attribute, setAttribute] = useState('risk_tolerance');
   const [newValue, setNewValue] = useState('0.2');
   const [status, setStatus] = useState<'idle' | 'running' | 'done'>('idle');
   const [result, setResult] = useState<CounterfactualResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // The actors are whoever CAUSARIUM reasoned for this question - never a fixed list.
+  useEffect(() => {
+    causariumApi.getSimulationStatus(simulationId)
+      .then(s => setRoster(s?.roster ?? []))
+      .catch(() => setRoster([]));
+  }, [simulationId]);
 
   const handleIntervene = async () => {
     setStatus('running');
@@ -46,9 +49,13 @@ export const InterventionConsole: React.FC<{ simulationId: string; onClose: () =
             <div>
               <label className="block text-gray-400 text-xs mb-2">Target Actor</label>
               <select value={agentIndex} onChange={e => setAgentIndex(parseInt(e.target.value))}
-                className="w-full bg-[#0A0A0F] border border-[#333] rounded p-2 text-white font-mono">
-                {AGENTS.map((a, i) => <option key={a} value={i}>{a}</option>)}
+                disabled={!roster.length}
+                className="w-full bg-[#0A0A0F] border border-[#333] rounded p-2 text-white font-mono disabled:opacity-50">
+                {roster.length
+                  ? roster.map(a => <option key={a.index} value={a.index}>{a.name}{a.contender ? ' (outcome)' : ''}</option>)
+                  : <option value={0}>Loading actors...</option>}
               </select>
+              {roster[agentIndex]?.role && <div className="text-[10px] text-gray-500 mt-1.5">{roster[agentIndex].role}</div>}
             </div>
             <div>
               <label className="block text-gray-400 text-xs mb-2">Attribute</label>
@@ -90,7 +97,7 @@ export const InterventionConsole: React.FC<{ simulationId: string; onClose: () =
                     .slice(0, 8)
                     .map(([dim, v]) => (
                       <div key={dim} className="flex justify-between text-xs font-mono">
-                        <span className="text-gray-400 uppercase">{dim}</span>
+                        <span className="text-gray-400">{dim.replace(/_/g, ' ')}</span>
                         <span className={v > 0 ? 'text-[#00E5A0]' : 'text-[#FF3366]'}>
                           {v > 0 ? '+' : ''}{v.toFixed(2)}
                         </span>
@@ -117,6 +124,10 @@ export const InterventionConsole: React.FC<{ simulationId: string; onClose: () =
   );
 };
 
+// Outcomes are either a reasoned contender name or an engine enum - never show the enum raw.
+const readable = (o: string) =>
+  /^[A-Z0-9_]+$/.test(o) ? o.toLowerCase().replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase()) : o;
+
 const OutcomeBars: React.FC<{ title: string; dist: Record<string, number>; color: string }> = ({ title, dist, color }) => (
   <div>
     <div className="text-xs uppercase tracking-wider mb-2" style={{ color }}>{title}</div>
@@ -124,7 +135,7 @@ const OutcomeBars: React.FC<{ title: string; dist: Record<string, number>; color
       {Object.entries(dist).sort((a, b) => b[1] - a[1]).map(([outcome, p]) => (
         <div key={outcome}>
           <div className="flex justify-between text-[10px] font-mono text-gray-400 mb-0.5">
-            <span>{outcome}</span><span>{(p * 100).toFixed(0)}%</span>
+            <span>{readable(outcome)}</span><span>{(p * 100).toFixed(0)}%</span>
           </div>
           <div className="w-full bg-[#0A0A0F] h-1.5 rounded-full overflow-hidden">
             <div className="h-full rounded-full" style={{ width: `${p * 100}%`, backgroundColor: color }}></div>
