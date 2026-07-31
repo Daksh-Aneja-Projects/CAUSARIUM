@@ -5,6 +5,7 @@ import { DNARadar } from './DNARadar';
 import { OutcomeConstellation } from './OutcomeConstellation';
 import { Icon, IconName } from './Icon';
 import { AnimatedNumber, LiveMeter, Typewriter } from './Live';
+import { Verdict } from './Verdict';
 
 const OUTCOME_COLORS: Record<string, string> = {
   SYSTEMIC_COLLAPSE: '#FF3366', CONFLICT_ESCALATION: '#FF7A45', MONOPOLY_CAPTURE: '#FFB800',
@@ -60,12 +61,15 @@ export const DiscoveryDashboard: React.FC<{ simulationId: string; lens: Lens | n
         </div>
       </div>
 
-      {/* Executive summary - the plain-English "what happened", typed live */}
-      <div className="glass-panel rounded-2xl px-5 py-4 shrink-0" style={{ boxShadow: `0 0 0 1px ${accent}33, 0 0 40px -20px ${accent}` }}>
-        <div className="text-[10px] font-mono uppercase tracking-widest text-gray-500 mb-1.5 flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: accent }} /> What the futures reveal
+      {/* The answer leads: verdict strip + the plain-English readout side by side. */}
+      <div className="shrink-0 grid grid-cols-1 lg:grid-cols-[minmax(380px,1fr)_1.4fr] gap-3">
+        <Verdict outcomes={dist} accent={accent} live={false} vocab={vocab} compact />
+        <div className="glass-deep hairline rounded-2xl px-5 py-4 flex flex-col justify-center" style={{ boxShadow: `var(--shadow-key), 0 0 40px -22px ${accent}` }}>
+          <div className="text-[10px] font-mono uppercase tracking-widest text-gray-500 mb-1.5 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: accent }} /> What the futures reveal
+          </div>
+          <Typewriter text={nar.headline || 'The simulation did not produce a decisive pattern.'} className="text-white text-[15px] leading-relaxed font-display" />
         </div>
-        <Typewriter text={nar.headline || 'The simulation did not produce a decisive pattern.'} className="text-white text-[15px] leading-relaxed font-display" />
       </div>
 
       {/* Main: three readable columns filling the viewport */}

@@ -4,6 +4,7 @@ import { useSimulationStream } from '../hooks/useSimulationStream';
 import { Icon, agentTypeIcon } from './Icon';
 import { AmbientField } from './AmbientField';
 import { RealityCollider } from './RealityCollider';
+import { Verdict } from './Verdict';
 
 const EXAMPLES = [
   'Who will win the next UK general election?',
@@ -77,22 +78,25 @@ export const Studio: React.FC<{ onComplete: (id: string, lens: Lens | null) => v
     <div className="h-full flex flex-col min-h-0 animate-fade-in relative">
       <AmbientField accent={accent} className="opacity-20 pointer-events-none" energetic={synthesizing} />
 
-      {/* Prompt (top) */}
+      {/* Prompt (top) — the instrument console */}
       <div className="px-8 pt-4 pb-3 shrink-0 relative z-10">
-        <div className="text-[11px] font-mono uppercase tracking-[0.3em] mb-1.5" style={{ color: accent }}>Ask the future</div>
-        <div className="relative">
+        <div className="text-[11px] font-mono uppercase tracking-[0.34em] mb-2 flex items-center gap-2" style={{ color: accent }}>
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: accent, boxShadow: `0 0 8px ${accent}` }} />
+          Ask the future
+        </div>
+        <div className="group relative glass-deep hairline rounded-2xl transition-shadow duration-300 focus-within:[box-shadow:var(--shadow-key),0_0_0_1px_var(--h),0_0_44px_-14px_var(--h)]" style={{ ['--h' as any]: accent }}>
           <input value={prompt} onChange={e => setPrompt(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') design(prompt); }}
             placeholder="Ask anything: who wins the election, the World Cup, the market move, the merger..."
-            className="w-full bg-[#0A0A0F] border border-[#333] rounded-xl pl-11 pr-32 py-3 text-white text-[15px] font-display focus:outline-none focus:border-[color:var(--h)] transition-colors" style={{ ['--h' as any]: accent }} />
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500"><Icon name="search" size={18} /></span>
+            className="w-full bg-transparent rounded-2xl pl-12 pr-36 py-4 text-white text-[17px] font-display placeholder:text-gray-600 focus:outline-none" />
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-[color:var(--h)] transition-colors" style={{ ['--h' as any]: accent }}><Icon name="search" size={19} /></span>
           <button onClick={() => design(prompt)} disabled={synthesizing || !prompt.trim()}
-            className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-2 rounded-lg font-medium text-white transition-all disabled:opacity-40 flex items-center gap-2" style={{ backgroundColor: accent, boxShadow: `0 0 18px -6px ${accent}` }}>
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 px-5 py-2.5 rounded-xl font-semibold text-white text-sm transition-all disabled:opacity-40 flex items-center gap-2" style={{ backgroundColor: accent, boxShadow: `0 0 22px -6px ${accent}` }}>
             {synthesizing ? 'Reasoning...' : <>Reason <Icon name="launch" size={14} /></>}
           </button>
         </div>
         {!scenario && !synthesizing && (
-          <div className="flex flex-wrap gap-1.5 mt-2">
-            {EXAMPLES.map(ex => <button key={ex} onClick={() => design(ex)} className="text-[10px] font-mono px-2 py-1 rounded-full border border-[#222] text-gray-500 hover:text-gray-300 hover:border-[#444] transition">{ex}</button>)}
+          <div className="flex flex-wrap gap-2 mt-2.5">
+            {EXAMPLES.map(ex => <button key={ex} onClick={() => design(ex)} className="text-[11px] font-mono px-3 py-1.5 rounded-full border border-white/8 bg-white/[0.02] text-gray-500 hover:text-white hover:border-[color:var(--h)] hover:bg-white/[0.04] transition-all" style={{ ['--h' as any]: accent }}>{ex}</button>)}
           </div>
         )}
       </div>
@@ -163,7 +167,7 @@ export const Studio: React.FC<{ onComplete: (id: string, lens: Lens | null) => v
         {/* RIGHT - live field */}
         <div className="relative rounded-2xl overflow-hidden border border-white/5 bg-[#0A0A0F] min-h-0">
           {simId ? (
-            <RealityCollider events={stream.events} status={stream.status} progress={stream.progress} outcomes={stream.outcomes} running={!stream.complete} paused={stream.paused} lens={lens} contenders={contenders} />
+            <RealityCollider events={stream.events} status={stream.status} progress={stream.progress} outcomes={stream.outcomes} running={!stream.complete} paused={stream.paused} lens={lens} contenders={contenders} hideOutcomes />
           ) : (
             <>
               <AmbientField accent={accent} energetic={synthesizing} />
@@ -180,8 +184,15 @@ export const Studio: React.FC<{ onComplete: (id: string, lens: Lens | null) => v
           )}
           {simId && (
             <div className="absolute top-4 right-5 text-right pointer-events-none">
-              <div className="font-display text-4xl font-semibold text-white tabular-nums">{stream.progress}%</div>
-              <div className="text-gray-500 font-mono text-[10px] mt-0.5">{stream.status} · timeline {stream.currentRun}</div>
+              <div className="font-display text-4xl font-semibold text-white tabular-nums leading-none">{stream.progress}%</div>
+              <div className="text-gray-500 font-mono text-[10px] mt-1">{stream.status.toLowerCase()} · timeline {stream.currentRun}</div>
+            </div>
+          )}
+          {/* The hero: leading future rises here in real time as timelines resolve. */}
+          {simId && (
+            <div className="absolute left-5 right-5 bottom-5 max-w-[520px] pointer-events-none z-10">
+              <Verdict outcomes={stream.outcomes} accent={accent} live={!stream.complete}
+                vocab={(o) => lens?.outcome_vocab?.[o] ?? o} />
             </div>
           )}
         </div>

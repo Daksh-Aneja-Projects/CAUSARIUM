@@ -17,6 +17,8 @@ export interface RealityColliderProps {
   events: StreamEvent[]; status: string; progress: number;
   outcomes: Record<string, number>; running: boolean; paused?: boolean; lens?: Lens | null;
   contenders?: string[];
+  /** Hide the bottom-left outcome legend when a Verdict already presents it. */
+  hideOutcomes?: boolean;
 }
 
 const OUTCOME_COLORS: Record<string, string> = {
@@ -41,7 +43,7 @@ interface Node {
 }
 interface Pulse { a: string; b: string; t0: number; dur: number; color: string }
 
-export const RealityCollider: React.FC<RealityColliderProps> = ({ events, status, outcomes, running, paused, lens, contenders }) => {
+export const RealityCollider: React.FC<RealityColliderProps> = ({ events, status, outcomes, running, paused, lens, contenders, hideOutcomes }) => {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const cursor = useRef(0);
@@ -258,7 +260,7 @@ export const RealityCollider: React.FC<RealityColliderProps> = ({ events, status
         </div>
         <div className="text-gray-600 mt-0.5">{hud.actors} actors · tick {hud.tick}</div>
       </div>
-      {ranked.length > 0 && (
+      {ranked.length > 0 && !hideOutcomes && (
         <div className="absolute bottom-4 left-5 flex flex-col gap-1 pointer-events-none">
           {ranked.slice(0, 6).map(([o, n]) => (
             <span key={o} className="text-[10px] font-mono flex items-center gap-1.5" style={{ color: colorForOutcome(o, accent.current) }}>
